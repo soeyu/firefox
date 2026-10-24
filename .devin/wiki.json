@@ -1,0 +1,153 @@
+{
+  "repo_notes": [
+    {
+      "content": "全局语言要求（必须遵守）：本 Wiki 的所有面向读者的内容一律使用简体中文（zh-CN），包括页面标题、章节标题、正文说明、摘要、表格、架构图标题与节点/连线标签，以及示例解释。不要因为仓库源码、注释、符号或原有文档使用英语，就把 Wiki 正文也生成为英文。技术标识应保持准确：源代码目录与文件路径、类名、函数名、变量名、API 名称、命令、配置项、协议名、标准名、产品名和项目官方名称保留原文；必要时在首次出现时用中文解释，或采用“中文名称（English term）”的形式。代码片段、命令和源码引用不得为了中文化而改写。专业术语应使用一致、准确的中文译法；没有公认译名时保留英文并补充中文解释。以仓库源码为事实依据，区分已确认的实现事实与推断，不要编造源码中不存在的模块、调用关系或行为。页面之间应使用一致的中文术语，并保留能够帮助读者定位源码的英文目录名、符号名和路径。"
+    }
+  ],
+  "pages": [
+    {
+      "title": "总览：mozilla-central / Firefox 源码树",
+      "purpose": "从高层次介绍 Firefox 单体仓库的整体结构：Gecko 平台（dom、layout、gfx、js、netwerk）、前端（browser、mobile、toolkit）、构建与持续集成（mach、Taskcluster）、测试体系，以及仓库内的 AI Agent Skills。提供指向各专题子页面的导航。"
+    },
+    {
+      "title": "仓库布局与顶层目录",
+      "purpose": "逐一介绍 accessible/、browser/、devtools/、dom/、layout/、gfx/、js/、intl/、netwerk/、security/、toolkit/、mobile/、widget/、xpcom/、third_party/、testing/、taskcluster/、tools/、python/ 等顶层目录的职责、主要子目录及相互关系。",
+      "parent": "总览：mozilla-central / Firefox 源码树"
+    },
+    {
+      "title": "入门：环境引导、mozconfig 与 mach",
+      "purpose": "介绍源码克隆、运行 ./mach bootstrap、构建配置、build/、config/、python/mozbuild、moz.build 文件的作用，以及编译、运行 Firefox 和常见 mach 命令。",
+      "parent": "总览：mozilla-central / Firefox 源码树"
+    },
+    {
+      "title": "贡献工作流",
+      "purpose": "介绍 Bugzilla、Phabricator 与 .arcconfig、补丁堆栈、代码评审、代码合入流程，并指向 docs/bug-mgmt 和 docs/contributing 等贡献指南。",
+      "parent": "总览：mozilla-central / Firefox 源码树"
+    },
+    {
+      "title": "Gecko 平台架构",
+      "purpose": "概述 Gecko 渲染引擎的平台分层及各层如何协作，并链接到 DOM、布局与样式、图形、网络、JavaScript 引擎、XPCOM/IPC 等专题页面。"
+    },
+    {
+      "title": "DOM 与 Web API（dom/）",
+      "purpose": "介绍 WebIDL 绑定、dom/base、事件、Workers、媒体、WebGPU、存储与 Quota、安全机制，以及新 Web 标准在 Gecko 中的实现路径。",
+      "parent": "Gecko 平台架构"
+    },
+    {
+      "title": "布局、样式与渲染（layout/、servo/）",
+      "purpose": "介绍 Frame 构建、reflow、绘制、Stylo/Servo 样式系统，以及用于验证渲染正确性的 reftest 测试体系。",
+      "parent": "Gecko 平台架构"
+    },
+    {
+      "title": "图形栈（gfx/、image/、media/）",
+      "purpose": "介绍 WebRender、Layers/APZ、二维图形后端、Skia/Harfbuzz 等第三方库、图像解码器、媒体编解码与播放管线，并解释关键模块之间的数据流和职责边界。",
+      "parent": "Gecko 平台架构"
+    },
+    {
+      "title": "网络与安全（netwerk/、security/、nsprpub/）",
+      "purpose": "介绍 Necko 协议处理器、HTTP/3（neqo）、Cookie、DNS/DoH、NSS/PSM 与沙箱机制，说明相关目录和关键组件的职责。",
+      "parent": "Gecko 平台架构"
+    },
+    {
+      "title": "SpiderMonkey JavaScript 引擎（js/）",
+      "purpose": "介绍 js/src 的主要结构，包括前端、JIT、垃圾回收（GC）、虚拟机（VM）和 WebAssembly；说明 jsapi-tests、jit-test 测试套件，以及通过 XPConnect 与 Gecko 交互的方式。",
+      "parent": "Gecko 平台架构"
+    },
+    {
+      "title": "XPCOM、IPC 与多进程模型",
+      "purpose": "介绍 XPCOM 组件与接口（xpcom/、xpidl）、IPDL 协议（ipc/）、Firefox 多进程架构及 Actor 通信机制，并说明这些机制的适用边界。",
+      "parent": "Gecko 平台架构"
+    },
+    {
+      "title": "前端界面与面向用户的产品",
+      "purpose": "概述桌面版 Firefox 前端、toolkit 共享组件、开发者工具和移动端产品，并链接到各产品与组件专题页面。"
+    },
+    {
+      "title": "桌面版 Firefox 前端（browser/）",
+      "purpose": "介绍 browser/base、browser/components 中的地址栏（urlbar）、标签页管理（tabbrowser）、会话恢复（sessionstore）、首选项、新标签页、侧边栏、Actors、主题，以及前端代码约定。",
+      "parent": "前端界面与面向用户的产品"
+    },
+    {
+      "title": "共享工具组件（toolkit/）",
+      "purpose": "介绍 toolkit/components 中的扩展、Places、密码管理、Telemetry/Glean、机器学习（ml）、更新和崩溃报告等功能，以及可复用控件、主题和设计系统令牌。",
+      "parent": "前端界面与面向用户的产品"
+    },
+    {
+      "title": "开发者工具（devtools/）",
+      "purpose": "介绍调试器、检查器、网络监视器、Web 控制台等客户端面板，服务端 Actors、RDP 协议及共享命令。",
+      "parent": "前端界面与面向用户的产品"
+    },
+    {
+      "title": "移动端：Android 与 iOS（mobile/）",
+      "purpose": "介绍 GeckoView、android-components、Fenix、Focus、通过 ./mach gradle 构建 Android 项目，以及创建 Android 模块的基本流程。",
+      "parent": "前端界面与面向用户的产品"
+    },
+    {
+      "title": "无障碍支持（accessible/）",
+      "purpose": "介绍跨平台无障碍引擎，包括 ATK、MSAA/IAccessible2、macOS 和 Android 相关实现，HCM 文档，以及前端无障碍评审检查流程。",
+      "parent": "前端界面与面向用户的产品"
+    },
+    {
+      "title": "国际化与本地化（intl/、l10n）",
+      "purpose": "介绍 ICU/ICU4X 集成、Fluent 本地化系统、fluent-migration 工作流，以及 python/l10n 中的迁移工具。",
+      "parent": "前端界面与面向用户的产品"
+    },
+    {
+      "title": "构建、持续集成与开发工具",
+      "purpose": "概述 Firefox 构建系统、持续集成、代码检查和文档工具，并链接到相应专题页面。"
+    },
+    {
+      "title": "构建系统（build/、config/、python/mozbuild）",
+      "purpose": "介绍 moz.build/mozbuild 前端、configure 配置过程、Rust/Cargo 集成、.cargo/config.toml.in、供应链配置及构建工具链。",
+      "parent": "构建、持续集成与开发工具"
+    },
+    {
+      "title": "Taskcluster 持续集成与发布流水线",
+      "purpose": "介绍 taskcluster/、Taskgraph 的 kinds 与 transforms、Docker 镜像，以及签名、Beetmover 和发布自动化流程。",
+      "parent": "构建、持续集成与开发工具"
+    },
+    {
+      "title": "代码检查、格式化与静态分析",
+      "purpose": "介绍 mozlint 框架（tools/lint、python/mozlint）、ESLint/Stylelint 配置、clang-format、Clippy，以及 ./mach lint 的使用方式。",
+      "parent": "构建、持续集成与开发工具"
+    },
+    {
+      "title": "文档系统（docs/、tools/moztreedocs）",
+      "purpose": "介绍基于 Sphinx 与 MyST 的文档构建、./mach doc、SPHINX_TREES、docs/config.yml 分类、重定向、autodoc 与 Mermaid 图表。",
+      "parent": "构建、持续集成与开发工具"
+    },
+    {
+      "title": "第三方与供应商代码（third_party/、media/、modules/）",
+      "purpose": "介绍第三方 Rust crate、libwebrtc、ANGLE 和 Python 软件包等依赖的引入、维护、补丁管理（moz-patch-stack）与升级流程。",
+      "parent": "构建、持续集成与开发工具"
+    },
+    {
+      "title": "测试基础设施",
+      "purpose": "概述 Firefox 的测试套件、测试执行框架和测试基础设施，并链接到各类功能测试、Web 平台测试与性能测试专题。"
+    },
+    {
+      "title": "测试执行框架与测试套件",
+      "purpose": "介绍 mochitest、xpcshell、browser-chrome、reftest/crashtest、gtest、Marionette、geckodriver 与 testing/mozbase，并说明各自适合验证的内容。",
+      "parent": "测试基础设施"
+    },
+    {
+      "title": "Web 平台测试（testing/web-platform）",
+      "purpose": "介绍 WPT 目录结构，包括 tests/、meta/ 中的预期结果、mozilla/ 厂商测试，以及测试导入、导出和问题分流流程。",
+      "parent": "测试基础设施"
+    },
+    {
+      "title": "性能测试（Talos、Raptor、mozperftest）",
+      "purpose": "介绍性能测试框架、Browsertime/Raptor、AWSY、perfdocs 生成方式，以及在持续集成中运行性能测试的流程。",
+      "parent": "测试基础设施"
+    },
+    {
+      "title": "仓库内的 AI Agent Skills",
+      "purpose": "介绍 .agents/skills 与镜像目录 .claude/skills 的组织方式、治理规则、上下文成本、技能市场，以及 SKILL.md 的格式，并链接到具体技能页面。"
+    },
+    {
+      "title": "Bug 提交与分诊技能",
+      "purpose": "介绍 bug-filing（file-bug.py）、file-good-first-bug（scripts/build_url.py）、find-reviewer 和 stmo 等技能，说明它们如何构造 Bugzilla URL、查找导师或评审者，以及相关脚本的用途。",
+      "parent": "仓库内的 AI Agent Skills"
+    }
+  ]
+}
