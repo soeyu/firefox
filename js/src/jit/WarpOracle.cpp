@@ -442,14 +442,22 @@ AbortReasonOr<WarpScriptSnapshot*> WarpScriptOracle::createScriptSnapshot() {
       }
 
       case JSOp::Rest: {
-        if (Shape* shape =
-                script_->global().maybeArrayShapeWithDefaultProto()) {
-          if (!AddOpSnapshot<WarpRest>(alloc_, opSnapshots, offset, shape)) {
-            return abort(AbortReason::Alloc);
-          }
+        Shape* shape = GlobalObject::getArrayShapeWithDefaultProto(cx_);
+        if (!shape) {
+          return abort(AbortReason::Error);
+        }
+        if (!AddOpSnapshot<WarpRest>(alloc_, opSnapshots, offset, shape)) {
+          return abort(AbortReason::Alloc);
         }
         break;
       }
+
+      case JSOp::NewArray:
+        if (!GlobalObject::getArrayShapeWithDefaultProto(cx_)) {
+          return abort(AbortReason::Error);
+        }
+        MOZ_TRY(maybeInlineIC(opSnapshots, loc));
+        break;
 
       case JSOp::BindUnqualifiedGName: {
         GlobalObject* global = &script_->global();
@@ -592,7 +600,6 @@ AbortReasonOr<WarpScriptSnapshot*> WarpScriptOracle::createScriptSnapshot() {
       case JSOp::TypeofEq:
       case JSOp::NewObject:
       case JSOp::NewInit:
-      case JSOp::NewArray:
       case JSOp::JumpIfFalse:
       case JSOp::JumpIfTrue:
       case JSOp::And:
@@ -880,6 +887,24 @@ bool WarpOracle::addFuseDependency(RealmFuses::FuseIndex fuseIndex) {
       using Dependency =
           RealmFuseDependency<&RealmFuses::optimizeRegExpPrototypeFuse,
                               CompilationDependency::Type::RegExpPrototype>;
+      return addDep(Dependency());
+    }
+    case RealmFuses::FuseIndex::ObjectProtoHasNoIndexedPropsFuse: {
+      using Dependency = RealmFuseDependency<
+          &RealmFuses::objectProtoHasNoIndexedPropsFuse,
+          CompilationDependency::Type::ObjectProtoHasNoIndexedProps>;
+      return addDep(Dependency());
+    }
+    case RealmFuses::FuseIndex::ArrayProtoHasNoIndexedPropsFuse: {
+      using Dependency = RealmFuseDependency<
+          &RealmFuses::arrayProtoHasNoIndexedPropsFuse,
+          CompilationDependency::Type::ArrayProtoHasNoIndexedProps>;
+      return addDep(Dependency());
+    }
+    case RealmFuses::FuseIndex::StringProtoHasNoIndexedPropsFuse: {
+      using Dependency = RealmFuseDependency<
+          &RealmFuses::stringProtoHasNoIndexedPropsFuse,
+          CompilationDependency::Type::StringProtoHasNoIndexedProps>;
       return addDep(Dependency());
     }
     default:
@@ -1563,7 +1588,7 @@ AbortReasonOr<bool> WarpScriptOracle::maybeInlinePolymorphicTypes(
     if (!types.hasData()) {
       return false;
     }
-    if (!candidates.append(TypeFrequency(types, successCount))) {
+    if (!candidates.emplaceBack(types, successCount)) {
       return abort(AbortReason::Alloc);
     }
   }
@@ -1747,7 +1772,7 @@ bool WarpScriptOracle::maybeReplaceNurseryPointer(
     size_t offset) {
   // ValueOrNurseryValueIndex uses MagicValueUint32 to encode nursery indexes.
   // Assert this doesn't conflict with |v|.
-  MOZ_ASSERT(ValueOrNurseryValueIndex::fromValue(v).isValue());
+  MOZ_RELEASE_ASSERT(ValueOrNurseryValueIndex::fromValue(v).isValue());
 
   if (!v.isGCThing() || !IsInsideNursery(v.toGCThing())) {
     return true;

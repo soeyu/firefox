@@ -882,10 +882,10 @@ function makeSearchResult(
   }
 
   if (isRichSuggestion) {
-    payload.icon = UrlbarUtils.getRemoteIconUrl(
-      "data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==",
-      UrlbarProviderSearchSuggestions.RICH_ICON_SIZE
-    );
+    payload.icon = UrlbarUtils.getRemoteImageUrl({
+      url: "data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==",
+      size: UrlbarProviderSearchSuggestions.RICH_ICON_SIZE,
+    });
     payload.description = "description";
   }
 
@@ -1128,7 +1128,7 @@ async function check_results({
       getSearchSource() {
         return "dummy-search-source";
       },
-      window: {
+      browserWindow: {
         location: {
           href: AppConstants.BROWSER_CHROME_URL,
         },

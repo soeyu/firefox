@@ -34,6 +34,7 @@ import org.mozilla.fenix.ui.efficiency.pageObjects.SettingsAccessibilityPage
 import org.mozilla.fenix.ui.efficiency.pageObjects.SettingsAddonsManagerPage
 import org.mozilla.fenix.ui.efficiency.pageObjects.SettingsAdvancedDownloadSettingsPage
 import org.mozilla.fenix.ui.efficiency.pageObjects.SettingsAdvancedRemoteImprovementsPage
+import org.mozilla.fenix.ui.efficiency.pageObjects.SettingsAiControlsPage
 import org.mozilla.fenix.ui.efficiency.pageObjects.SettingsAppIconPage
 import org.mozilla.fenix.ui.efficiency.pageObjects.SettingsAutofillPage
 import org.mozilla.fenix.ui.efficiency.pageObjects.SettingsCustomizePage
@@ -66,6 +67,7 @@ import org.mozilla.fenix.ui.efficiency.pageObjects.SettingsTabsPage
 import org.mozilla.fenix.ui.efficiency.pageObjects.SettingsTurnOnSyncPage
 import org.mozilla.fenix.ui.efficiency.pageObjects.ShareOverlayPage
 import org.mozilla.fenix.ui.efficiency.pageObjects.ShortcutsPage
+import org.mozilla.fenix.ui.efficiency.pageObjects.StoriesPage
 import org.mozilla.fenix.ui.efficiency.pageObjects.TabDrawerPage
 import org.mozilla.fenix.ui.efficiency.pageObjects.TabHistoryPage
 import org.mozilla.fenix.ui.efficiency.pageObjects.ToolbarComponent
@@ -98,6 +100,7 @@ class PageContext(val composeRule: AndroidComposeTestRule<HomeActivityIntentTest
     val searchBar = SearchBarComponent(composeRule)
     val settings = SettingsPage(composeRule)
     val settingsAbout = SettingsAboutPage(composeRule)
+    val settingsAiControls = SettingsAiControlsPage(composeRule)
     val settingsAccessibility = SettingsAccessibilityPage(composeRule)
     val settingsAddonsManager = SettingsAddonsManagerPage(composeRule)
     val settingsAdvancedDownloadSettings = SettingsAdvancedDownloadSettingsPage(composeRule)
@@ -133,6 +136,7 @@ class PageContext(val composeRule: AndroidComposeTestRule<HomeActivityIntentTest
     val settingsTurnOnSync = SettingsTurnOnSyncPage(composeRule)
     val shareOverlay = ShareOverlayPage(composeRule)
     val shortcuts = ShortcutsPage(composeRule)
+    val stories = StoriesPage(composeRule)
     val tabDrawer = TabDrawerPage(composeRule)
     val tabHistory = TabHistoryPage(composeRule)
     val toolbar = ToolbarComponent(composeRule)

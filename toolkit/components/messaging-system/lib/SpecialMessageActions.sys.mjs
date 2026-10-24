@@ -53,7 +53,8 @@ ChromeUtils.defineESModuleGetters(lazy, {
     "moz-src:///browser/components/ipprotection/IPProtection.sys.mjs",
   MessagingSystemAllowlists:
     "resource://messaging-system/lib/MessagingSystemAllowlists.sys.mjs",
-  MigrationUtils: "resource:///modules/MigrationUtils.sys.mjs",
+  MigrationUtils:
+    "moz-src:///browser/components/migration/MigrationUtils.sys.mjs",
   ON_SERVICE_ENABLED_NOTIFICATION:
     "resource://gre/modules/FxAccountsCommon.sys.mjs",
   PlacesTransactions: "resource://gre/modules/PlacesTransactions.sys.mjs",
@@ -64,7 +65,7 @@ ChromeUtils.defineESModuleGetters(lazy, {
   PushNotificationHelper:
     "resource://gre/modules/PushNotificationHelper.sys.mjs",
   // eslint-disable-next-line mozilla/no-browser-refs-in-toolkit
-  Referrals: "resource:///modules/referrals/Referrals.sys.mjs",
+  Referrals: "moz-src:///browser/components/referrals/Referrals.sys.mjs",
   ResetProfile: "resource://gre/modules/ResetProfile.sys.mjs",
   // eslint-disable-next-line mozilla/no-browser-refs-in-toolkit
   SelectableProfileService:
@@ -74,7 +75,7 @@ ChromeUtils.defineESModuleGetters(lazy, {
   // eslint-disable-next-line mozilla/no-browser-refs-in-toolkit
   Spotlight: "resource:///modules/asrouter/Spotlight.sys.mjs",
   // eslint-disable-next-line mozilla/no-browser-refs-in-toolkit
-  TaskbarTabs: "resource:///modules/taskbartabs/TaskbarTabs.sys.mjs",
+  TaskbarTabs: "moz-src:///browser/components/taskbartabs/TaskbarTabs.sys.mjs",
   UIState: "resource://services-sync/UIState.sys.mjs",
   UITour: "moz-src:///browser/components/uitour/UITour.sys.mjs",
   LaunchOnLogin: "resource://gre/modules/LaunchOnLogin.sys.mjs",
@@ -171,12 +172,13 @@ export const SpecialMessageActions = {
    * requiring the site to be open or previously visited.
    *
    * Returns true if the tab was newly created and pinned, null if a Taskbar
-   * Tab for this URL already existed, or false if an error occurred.
+   * Tab for this URL already existed, or false if an error occurred or the
+   * user declined the OS pin prompt.
    *
-   * NOTE: findOrCreateTaskbarTab resolves once the taskbar tab is registered,
-   * not once it has actually been pinned. The internal pin step (and the
-   * Windows 11 OS pin dialog) runs after the promise settles, so we return
-   * before the user has accepted or rejected the OS prompt.
+   * Waits for the pin attempt, including the Windows 11 OS pin dialog, to
+   * complete. If the user declines and the Taskbar Tab was created by this
+   * call, it is deleted along with its shortcut, so the site is not treated
+   * as already pinned and can be offered again later.
    *
    * @param {object} data
    * @param {string} data.url - The URL of the web app (HTTP/HTTPS only).
@@ -205,11 +207,20 @@ export const SpecialMessageActions = {
     };
 
     try {
-      await lazy.TaskbarTabs.findOrCreateTaskbarTab(uri, 0, {
-        manifest,
-        ensurePinned: true,
-      });
-      return true;
+      let { created, taskbarTab, pin } =
+        await lazy.TaskbarTabs.findOrCreateTaskbarTab(uri, 0, {
+          manifest,
+          ensurePinned: true,
+        });
+      let { rejected } = await pin;
+      if (rejected) {
+        if (created) {
+          await lazy.TaskbarTabs.removeTaskbarTab(taskbarTab.id);
+        }
+        return false;
+      }
+      // If an existing tab is found, don't report that one was created.
+      return created ? true : null;
     } catch (e) {
       console.error("Failed to pin Taskbar Tab:", e);
       return false;
@@ -446,6 +457,7 @@ export const SpecialMessageActions = {
     const allowedSetOnImpressionPrefs = [
       "termsofuse.firstAcceptedDate",
       "termsofuse.acceptedDate",
+      "browser.startup.couldRestoreSession.count",
     ];
 
     // allowedPrefs above is the in-tree baseline. It can be extended off-train
@@ -882,6 +894,7 @@ export const SpecialMessageActions = {
         lazy.MigrationUtils.showMigrationWizard(window, {
           entrypoint: lazy.MigrationUtils.MIGRATION_ENTRYPOINTS.NEWTAB,
           migratorKey: action.data?.source,
+          tabModal: action.data?.tabModal,
         });
         break;
       case "OPEN_PRIVATE_BROWSER_WINDOW":
@@ -1201,6 +1214,9 @@ export const SpecialMessageActions = {
         await window.PanelUI.showSubView(panel_id, anchor);
         break;
       }
+      case "SELECT_AND_MARK_MENU_ITEM":
+        await window.PanelUI.selectAndMarkItem([...action.data.itemIds]);
+        break;
       case "CREATE_TASKBAR_TAB": {
         let currentTab = window.gBrowser.selectedTab;
         await lazy.TaskbarTabs.moveTabIntoTaskbarTab(currentTab);

@@ -74,6 +74,12 @@ tardir=python
 
 cd `mktemp -d`
 ${python_src}/configure --prefix=/${tardir} --enable-optimizations --with-lto ${configure_flags_extra} || { exit_status=$? && cat config.log && exit $exit_status ; }
+# make re-adds these to the configure-recorded flags; Linux keeps them so setup.py gets a working $ORIGIN rpath.
+case `uname -s` in
+    Darwin)
+        unset CFLAGS CPPFLAGS LDFLAGS
+        ;;
+esac
 
 export MAKEFLAGS=-j`nproc`
 make
@@ -95,7 +101,8 @@ PYCODE
 fi
 
 ${work_dir}/python/bin/python3 -m pip install --upgrade pip==23.0
-${work_dir}/python/bin/python3 -m pip install -r ${GECKO_PATH}/build/psutil_requirements.txt -r ${GECKO_PATH}/build/zstandard_requirements.txt
+${work_dir}/python/bin/python3 -m pip install -r ${GECKO_PATH}/build/psutil_requirements.txt -r ${GECKO_PATH}/build/zstandard_requirements.txt -r ${GECKO_PATH}/build/pyyaml_requirements.txt
+${work_dir}/python/bin/python3 -c "import yaml; assert yaml.__with_libyaml__"
 
 case `uname -s` in
     Darwin)
@@ -127,7 +134,7 @@ case `uname -s` in
         ${work_dir}/python/bin/python3 -c "import lzma"
 
         # We may not have access to system certificate on OSX
-        ${work_dir}/python/bin/python3 -m pip install certifi==2024.2.2
+        ${work_dir}/python/bin/python3 -m pip install certifi==2026.10.19
         ;;
     Linux)
         cp /usr/lib/$(uname -m)-linux-gnu/libffi.so.* ${work_dir}/python/lib/

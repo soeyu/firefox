@@ -33,10 +33,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import mozilla.appservices.db_crypto.EncryptorDecryptor
 import mozilla.appservices.db_crypto.FfiConverterTypeEncryptorDecryptor
-import mozilla.appservices.db_crypto.FfiConverterTypeKeyManager
-import mozilla.appservices.db_crypto.KeyManager
 import mozilla.appservices.db_crypto.RustBuffer as RustBufferEncryptorDecryptor
-import mozilla.appservices.db_crypto.RustBuffer as RustBufferKeyManager
 
 // This is a helper for safely working with byte buffers returned from the Rust code.
 // A rust-owned buffer is represented by its capacity, its current length, and a
@@ -678,11 +675,9 @@ internal object IntegrityCheckingUniffiLib {
         Native.register(IntegrityCheckingUniffiLib::class.java, findLibraryName(componentName = "logins"))
         uniffiCheckContractApiVersion(this)
     }
+
+    internal fun ensureInitialized() = Unit
     external fun uniffi_logins_checksum_func_create_login_store_with_static_key_manager(
-    ): Int
-    external fun uniffi_logins_checksum_func_create_managed_encdec(
-    ): Int
-    external fun uniffi_logins_checksum_func_create_static_key_manager(
     ): Int
     external fun uniffi_logins_checksum_method_loginstore_add(
     ): Int
@@ -731,6 +726,8 @@ internal object IntegrityCheckingUniffiLib {
     external fun uniffi_logins_checksum_method_loginstore_list(
     ): Int
     external fun uniffi_logins_checksum_method_loginstore_list_candidates(
+    ): Int
+    external fun uniffi_logins_checksum_method_loginstore_list_candidates_by_origin(
     ): Int
     external fun uniffi_logins_checksum_method_loginstore_record_breach_alert_dismissal(
     ): Int
@@ -801,6 +798,8 @@ internal object UniffiLib {
         mozilla.appservices.db_crypto.uniffiEnsureInitialized()
         
     }
+
+    internal fun ensureInitialized() = Unit
     external fun uniffi_logins_fn_clone_loginstore(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): Long
     external fun uniffi_logins_fn_free_loginstore(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
@@ -855,6 +854,8 @@ internal object UniffiLib {
     ): RustBuffer.ByValue
     external fun uniffi_logins_fn_method_loginstore_list_candidates(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    external fun uniffi_logins_fn_method_loginstore_list_candidates_by_origin(`ptr`: Long,`origins`: RustBuffer.ByValue,`domains`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     external fun uniffi_logins_fn_method_loginstore_record_breach_alert_dismissal(`ptr`: Long,`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     external fun uniffi_logins_fn_method_loginstore_record_breach_alert_dismissal_time(`ptr`: Long,`id`: RustBuffer.ByValue,`timestamp`: Long,uniffi_out_err: UniffiRustCallStatus, 
@@ -908,10 +909,6 @@ internal object UniffiLib {
     external fun uniffi_logins_fn_method_loginsbridgedengine_wipe(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     external fun uniffi_logins_fn_func_create_login_store_with_static_key_manager(`path`: RustBuffer.ByValue,`key`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-    ): Long
-    external fun uniffi_logins_fn_func_create_managed_encdec(`keyManager`: Long,uniffi_out_err: UniffiRustCallStatus, 
-    ): Long
-    external fun uniffi_logins_fn_func_create_static_key_manager(`key`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Long
     external fun ffi_logins_rustbuffer_alloc(`size`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
@@ -1035,10 +1032,10 @@ private fun uniffiCheckContractApiVersion(lib: IntegrityCheckingUniffiLib) {
  * @suppress
  */
 public fun uniffiEnsureInitialized() {
-    IntegrityCheckingUniffiLib
-    // UniffiLib() initialized as objects are used, but we still need to explicitly
-    // reference it so initialization across crates works as expected.
-    UniffiLib
+    // Call arbitrary methods on IntegrityCheckingUniffiLib and UniffiLib to ensure that
+    // their init blocks run. This ensures initialization across crates works as expected.
+    IntegrityCheckingUniffiLib.ensureInitialized()
+    UniffiLib.ensureInitialized()
 }
 
 // Async support
@@ -1499,6 +1496,15 @@ public interface LoginStoreInterface {
      * key. Resolve the ids you're interested in with `get_many()`.
      */
     fun `listCandidates`(): List<LoginCandidate>
+    
+    /**
+     * Like `list_candidates()`, but only the logins whose origin is one of `origins`, or whose
+     * host is one of `domains` or a subdomain of one. Meant as a pre-filter for consumers with
+     * their own origin matching: the result is a superset of what they match, as long as
+     * `domains` holds the base domain (eTLD+1, which the caller computes) of every host they
+     * accept subdomains of.
+     */
+    fun `listCandidatesByOrigin`(`origins`: List<kotlin.String>, `domains`: List<kotlin.String>): List<LoginCandidate>
     
     /**
      * Stores that the user dismissed the breach alert for a login.
@@ -2064,6 +2070,29 @@ open class LoginStore: Disposable, AutoCloseable, LoginStoreInterface
     UniffiLib.uniffi_logins_fn_method_loginstore_list_candidates(
         it,
         _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Like `list_candidates()`, but only the logins whose origin is one of `origins`, or whose
+     * host is one of `domains` or a subdomain of one. Meant as a pre-filter for consumers with
+     * their own origin matching: the result is a superset of what they match, as long as
+     * `domains` holds the base domain (eTLD+1, which the caller computes) of every host they
+     * accept subdomains of.
+     */
+    @Throws(LoginsApiException::class)override fun `listCandidatesByOrigin`(`origins`: List<kotlin.String>, `domains`: List<kotlin.String>): List<LoginCandidate> {
+            return FfiConverterSequenceTypeLoginCandidate.lift(
+    callWithHandle {
+    uniffiRustCallWithError(LoginsApiException) { _status ->
+    UniffiLib.uniffi_logins_fn_method_loginstore_list_candidates_by_origin(
+        it,
+        
+        FfiConverterSequenceString.lower(`origins`),
+        FfiConverterSequenceString.lower(`domains`),_status)
 }
     }
     )
@@ -3941,8 +3970,6 @@ public object FfiConverterSequenceTypeBulkResultEntry: FfiConverterRustBuffer<Li
 }
 
 
-
-
         /**
          * Create a LoginStore with StaticKeyManager by passing in a db path and a
          * static key
@@ -3953,39 +3980,6 @@ public object FfiConverterSequenceTypeBulkResultEntry: FfiConverterRustBuffer<Li
     
         
         FfiConverterString.lower(`path`),
-        FfiConverterString.lower(`key`),_status)
-}
-    )
-    }
-    
-
-        /**
-         * Similar to create_static_key_manager above, create a
-         * ManagedEncryptorDecryptor by passing in a KeyManager
-         */ fun `createManagedEncdec`(`keyManager`: KeyManager): EncryptorDecryptor {
-            return FfiConverterTypeEncryptorDecryptor.lift(
-    uniffiRustCall() { _status ->
-    UniffiLib.uniffi_logins_fn_func_create_managed_encdec(
-    
-        
-        FfiConverterTypeKeyManager.lower(`keyManager`),_status)
-}
-    )
-    }
-    
-
-        /**
-         * We expose the crypto primitives on the namespace
-         * Utility function to create a StaticKeyManager to be used for the time
-         * being until support lands for [trait implementation of an UniFFI
-         * interface](https://mozilla.github.io/uniffi-rs/next/proc_macro/index.html#structs-implementing-traits)
-         * in UniFFI.
-         */ fun `createStaticKeyManager`(`key`: kotlin.String): KeyManager {
-            return FfiConverterTypeKeyManager.lift(
-    uniffiRustCall() { _status ->
-    UniffiLib.uniffi_logins_fn_func_create_static_key_manager(
-    
-        
         FfiConverterString.lower(`key`),_status)
 }
     )

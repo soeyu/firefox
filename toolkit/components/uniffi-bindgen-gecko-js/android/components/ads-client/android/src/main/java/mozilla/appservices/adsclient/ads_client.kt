@@ -718,6 +718,8 @@ internal object IntegrityCheckingUniffiLib {
         Native.register(IntegrityCheckingUniffiLib::class.java, findLibraryName(componentName = "ads_client"))
         uniffiCheckContractApiVersion(this)
     }
+
+    internal fun ensureInitialized() = Unit
     external fun uniffi_ads_client_checksum_method_mozadsclient_clear_cache(
     ): Int
     external fun uniffi_ads_client_checksum_method_mozadsclient_record_click(
@@ -729,6 +731,8 @@ internal object IntegrityCheckingUniffiLib {
     external fun uniffi_ads_client_checksum_method_mozadsclient_request_image_ads(
     ): Int
     external fun uniffi_ads_client_checksum_method_mozadsclient_request_spoc_ads(
+    ): Int
+    external fun uniffi_ads_client_checksum_method_mozadsclient_request_spoc_or_image_ads(
     ): Int
     external fun uniffi_ads_client_checksum_method_mozadsclient_request_tile_ads(
     ): Int
@@ -775,6 +779,8 @@ internal object UniffiLib {
         uniffiCallbackInterfaceMozAdsTelemetry.register(this)
         
     }
+
+    internal fun ensureInitialized() = Unit
     external fun uniffi_ads_client_fn_clone_mozadsclient(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): Long
     external fun uniffi_ads_client_fn_free_mozadsclient(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
@@ -790,6 +796,8 @@ internal object UniffiLib {
     external fun uniffi_ads_client_fn_method_mozadsclient_request_image_ads(`ptr`: Long,`mozAdRequests`: RustBuffer.ByValue,`options`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_ads_client_fn_method_mozadsclient_request_spoc_ads(`ptr`: Long,`mozAdRequests`: RustBuffer.ByValue,`options`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_ads_client_fn_method_mozadsclient_request_spoc_or_image_ads(`ptr`: Long,`mozAdRequests`: RustBuffer.ByValue,`options`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_ads_client_fn_method_mozadsclient_request_tile_ads(`ptr`: Long,`mozAdRequests`: RustBuffer.ByValue,`options`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
@@ -935,10 +943,10 @@ private fun uniffiCheckContractApiVersion(lib: IntegrityCheckingUniffiLib) {
  * @suppress
  */
 public fun uniffiEnsureInitialized() {
-    IntegrityCheckingUniffiLib
-    // UniffiLib() initialized as objects are used, but we still need to explicitly
-    // reference it so initialization across crates works as expected.
-    UniffiLib
+    // Call arbitrary methods on IntegrityCheckingUniffiLib and UniffiLib to ensure that
+    // their init blocks run. This ensures initialization across crates works as expected.
+    IntegrityCheckingUniffiLib.ensureInitialized()
+    UniffiLib.ensureInitialized()
 }
 
 // Async support
@@ -1376,6 +1384,8 @@ public interface MozAdsClientInterface {
     
     fun `requestSpocAds`(`mozAdRequests`: List<MozAdsPlacementRequestWithCount>, `options`: MozAdsRequestOptions? = null): Map<kotlin.String, List<MozAdsSpoc>>
     
+    fun `requestSpocOrImageAds`(`mozAdRequests`: List<MozAdsPlacementRequestWithCount>, `options`: MozAdsRequestOptions? = null): Map<kotlin.String, List<MozAdsImageOrSpoc>>
+    
     fun `requestTileAds`(`mozAdRequests`: List<MozAdsPlacementRequest>, `options`: MozAdsRequestOptions? = null): Map<kotlin.String, MozAdsTile>
     
     fun `shutdown`()
@@ -1565,6 +1575,22 @@ open class MozAdsClient: Disposable, AutoCloseable, MozAdsClientInterface
     callWithHandle {
     uniffiRustCallWithError(MozAdsClientApiException) { _status ->
     UniffiLib.uniffi_ads_client_fn_method_mozadsclient_request_spoc_ads(
+        it,
+        
+        FfiConverterSequenceTypeMozAdsPlacementRequestWithCount.lower(`mozAdRequests`),
+        FfiConverterOptionalTypeMozAdsRequestOptions.lower(`options`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    @Throws(MozAdsClientApiException::class)override fun `requestSpocOrImageAds`(`mozAdRequests`: List<MozAdsPlacementRequestWithCount>, `options`: MozAdsRequestOptions?): Map<kotlin.String, List<MozAdsImageOrSpoc>> {
+            return FfiConverterMapStringSequenceTypeMozAdsImageOrSpoc.lift(
+    callWithHandle {
+    uniffiRustCallWithError(MozAdsClientApiException) { _status ->
+    UniffiLib.uniffi_ads_client_fn_method_mozadsclient_request_spoc_or_image_ads(
         it,
         
         FfiConverterSequenceTypeMozAdsPlacementRequestWithCount.lower(`mozAdRequests`),
@@ -2213,9 +2239,9 @@ data class MozAdsImage (
     , 
     var `format`: kotlin.String
     , 
-    var `imageUrl`: kotlin.String
+    var `imageUrl`: AdsClientUrl
     , 
-    var `url`: kotlin.String
+    var `url`: AdsClientUrl
     
 ){
     
@@ -2236,8 +2262,8 @@ public object FfiConverterTypeMozAdsImage: FfiConverterRustBuffer<MozAdsImage> {
             FfiConverterString.read(buf),
             FfiConverterTypeMozAdsCallbacks.read(buf),
             FfiConverterString.read(buf),
-            FfiConverterString.read(buf),
-            FfiConverterString.read(buf),
+            FfiConverterTypeAdsClientUrl.read(buf),
+            FfiConverterTypeAdsClientUrl.read(buf),
         )
     }
 
@@ -2246,8 +2272,8 @@ public object FfiConverterTypeMozAdsImage: FfiConverterRustBuffer<MozAdsImage> {
             FfiConverterString.allocationSize(value.`blockKey`) +
             FfiConverterTypeMozAdsCallbacks.allocationSize(value.`callbacks`) +
             FfiConverterString.allocationSize(value.`format`) +
-            FfiConverterString.allocationSize(value.`imageUrl`) +
-            FfiConverterString.allocationSize(value.`url`)
+            FfiConverterTypeAdsClientUrl.allocationSize(value.`imageUrl`) +
+            FfiConverterTypeAdsClientUrl.allocationSize(value.`url`)
     )
 
     override fun write(value: MozAdsImage, buf: ByteBuffer) {
@@ -2255,8 +2281,8 @@ public object FfiConverterTypeMozAdsImage: FfiConverterRustBuffer<MozAdsImage> {
             FfiConverterString.write(value.`blockKey`, buf)
             FfiConverterTypeMozAdsCallbacks.write(value.`callbacks`, buf)
             FfiConverterString.write(value.`format`, buf)
-            FfiConverterString.write(value.`imageUrl`, buf)
-            FfiConverterString.write(value.`url`, buf)
+            FfiConverterTypeAdsClientUrl.write(value.`imageUrl`, buf)
+            FfiConverterTypeAdsClientUrl.write(value.`url`, buf)
     }
 }
 
@@ -2351,6 +2377,8 @@ data class MozAdsRequestOptions (
     var `flags`: Map<kotlin.String, kotlin.Boolean> = mapOf() 
     , 
     var `ohttp`: kotlin.Boolean = false 
+    , 
+    var `relevance`: Map<kotlin.String, kotlin.Double> = mapOf() 
     
 ){
     
@@ -2371,6 +2399,7 @@ public object FfiConverterTypeMozAdsRequestOptions: FfiConverterRustBuffer<MozAd
             FfiConverterOptionalTypeMozAdsCachePolicy.read(buf),
             FfiConverterMapStringBoolean.read(buf),
             FfiConverterBoolean.read(buf),
+            FfiConverterMapStringDouble.read(buf),
         )
     }
 
@@ -2378,7 +2407,8 @@ public object FfiConverterTypeMozAdsRequestOptions: FfiConverterRustBuffer<MozAd
             FfiConverterSequenceString.allocationSize(value.`blocks`) +
             FfiConverterOptionalTypeMozAdsCachePolicy.allocationSize(value.`cachePolicy`) +
             FfiConverterMapStringBoolean.allocationSize(value.`flags`) +
-            FfiConverterBoolean.allocationSize(value.`ohttp`)
+            FfiConverterBoolean.allocationSize(value.`ohttp`) +
+            FfiConverterMapStringDouble.allocationSize(value.`relevance`)
     )
 
     override fun write(value: MozAdsRequestOptions, buf: ByteBuffer) {
@@ -2386,6 +2416,7 @@ public object FfiConverterTypeMozAdsRequestOptions: FfiConverterRustBuffer<MozAd
             FfiConverterOptionalTypeMozAdsCachePolicy.write(value.`cachePolicy`, buf)
             FfiConverterMapStringBoolean.write(value.`flags`, buf)
             FfiConverterBoolean.write(value.`ohttp`, buf)
+            FfiConverterMapStringDouble.write(value.`relevance`, buf)
     }
 }
 
@@ -2404,7 +2435,7 @@ data class MozAdsSpoc (
     , 
     var `format`: kotlin.String
     , 
-    var `imageUrl`: kotlin.String
+    var `imageUrl`: AdsClientUrl
     , 
     var `ranking`: MozAdsSpocRanking
     , 
@@ -2414,7 +2445,7 @@ data class MozAdsSpoc (
     , 
     var `title`: kotlin.String
     , 
-    var `url`: kotlin.String
+    var `url`: AdsClientUrl
     
 ){
     
@@ -2437,12 +2468,12 @@ public object FfiConverterTypeMozAdsSpoc: FfiConverterRustBuffer<MozAdsSpoc> {
             FfiConverterString.read(buf),
             FfiConverterString.read(buf),
             FfiConverterString.read(buf),
-            FfiConverterString.read(buf),
+            FfiConverterTypeAdsClientUrl.read(buf),
             FfiConverterTypeMozAdsSpocRanking.read(buf),
             FfiConverterString.read(buf),
             FfiConverterOptionalString.read(buf),
             FfiConverterString.read(buf),
-            FfiConverterString.read(buf),
+            FfiConverterTypeAdsClientUrl.read(buf),
         )
     }
 
@@ -2453,12 +2484,12 @@ public object FfiConverterTypeMozAdsSpoc: FfiConverterRustBuffer<MozAdsSpoc> {
             FfiConverterString.allocationSize(value.`domain`) +
             FfiConverterString.allocationSize(value.`excerpt`) +
             FfiConverterString.allocationSize(value.`format`) +
-            FfiConverterString.allocationSize(value.`imageUrl`) +
+            FfiConverterTypeAdsClientUrl.allocationSize(value.`imageUrl`) +
             FfiConverterTypeMozAdsSpocRanking.allocationSize(value.`ranking`) +
             FfiConverterString.allocationSize(value.`sponsor`) +
             FfiConverterOptionalString.allocationSize(value.`sponsoredByOverride`) +
             FfiConverterString.allocationSize(value.`title`) +
-            FfiConverterString.allocationSize(value.`url`)
+            FfiConverterTypeAdsClientUrl.allocationSize(value.`url`)
     )
 
     override fun write(value: MozAdsSpoc, buf: ByteBuffer) {
@@ -2468,12 +2499,12 @@ public object FfiConverterTypeMozAdsSpoc: FfiConverterRustBuffer<MozAdsSpoc> {
             FfiConverterString.write(value.`domain`, buf)
             FfiConverterString.write(value.`excerpt`, buf)
             FfiConverterString.write(value.`format`, buf)
-            FfiConverterString.write(value.`imageUrl`, buf)
+            FfiConverterTypeAdsClientUrl.write(value.`imageUrl`, buf)
             FfiConverterTypeMozAdsSpocRanking.write(value.`ranking`, buf)
             FfiConverterString.write(value.`sponsor`, buf)
             FfiConverterOptionalString.write(value.`sponsoredByOverride`, buf)
             FfiConverterString.write(value.`title`, buf)
-            FfiConverterString.write(value.`url`, buf)
+            FfiConverterTypeAdsClientUrl.write(value.`url`, buf)
     }
 }
 
@@ -2600,11 +2631,11 @@ data class MozAdsTile (
     , 
     var `format`: kotlin.String
     , 
-    var `imageUrl`: kotlin.String
+    var `imageUrl`: AdsClientUrl
     , 
     var `name`: kotlin.String
     , 
-    var `url`: kotlin.String
+    var `url`: AdsClientUrl
     
 ){
     
@@ -2624,9 +2655,9 @@ public object FfiConverterTypeMozAdsTile: FfiConverterRustBuffer<MozAdsTile> {
             FfiConverterString.read(buf),
             FfiConverterTypeMozAdsCallbacks.read(buf),
             FfiConverterString.read(buf),
+            FfiConverterTypeAdsClientUrl.read(buf),
             FfiConverterString.read(buf),
-            FfiConverterString.read(buf),
-            FfiConverterString.read(buf),
+            FfiConverterTypeAdsClientUrl.read(buf),
         )
     }
 
@@ -2634,18 +2665,18 @@ public object FfiConverterTypeMozAdsTile: FfiConverterRustBuffer<MozAdsTile> {
             FfiConverterString.allocationSize(value.`blockKey`) +
             FfiConverterTypeMozAdsCallbacks.allocationSize(value.`callbacks`) +
             FfiConverterString.allocationSize(value.`format`) +
-            FfiConverterString.allocationSize(value.`imageUrl`) +
+            FfiConverterTypeAdsClientUrl.allocationSize(value.`imageUrl`) +
             FfiConverterString.allocationSize(value.`name`) +
-            FfiConverterString.allocationSize(value.`url`)
+            FfiConverterTypeAdsClientUrl.allocationSize(value.`url`)
     )
 
     override fun write(value: MozAdsTile, buf: ByteBuffer) {
             FfiConverterString.write(value.`blockKey`, buf)
             FfiConverterTypeMozAdsCallbacks.write(value.`callbacks`, buf)
             FfiConverterString.write(value.`format`, buf)
-            FfiConverterString.write(value.`imageUrl`, buf)
+            FfiConverterTypeAdsClientUrl.write(value.`imageUrl`, buf)
             FfiConverterString.write(value.`name`, buf)
-            FfiConverterString.write(value.`url`, buf)
+            FfiConverterTypeAdsClientUrl.write(value.`url`, buf)
     }
 }
 
@@ -2871,6 +2902,89 @@ public object FfiConverterTypeMozAdsIABContentTaxonomy: FfiConverterRustBuffer<M
 
 
 
+sealed class MozAdsImageOrSpoc {
+    
+    data class Image(
+        val v1: mozilla.appservices.adsclient.MozAdsImage) : MozAdsImageOrSpoc()
+        
+    {
+        
+
+        companion object
+    }
+    
+    data class Spoc(
+        val v1: mozilla.appservices.adsclient.MozAdsSpoc) : MozAdsImageOrSpoc()
+        
+    {
+        
+
+        companion object
+    }
+    
+
+    
+
+    
+    
+
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeMozAdsImageOrSpoc : FfiConverterRustBuffer<MozAdsImageOrSpoc>{
+    override fun read(buf: ByteBuffer): MozAdsImageOrSpoc {
+        return when(buf.getInt()) {
+            1 -> MozAdsImageOrSpoc.Image(
+                FfiConverterTypeMozAdsImage.read(buf),
+                )
+            2 -> MozAdsImageOrSpoc.Spoc(
+                FfiConverterTypeMozAdsSpoc.read(buf),
+                )
+            else -> throw RuntimeException("invalid enum value, something is very wrong!!")
+        }
+    }
+
+    override fun allocationSize(value: MozAdsImageOrSpoc): ULong = when(value) {
+        is MozAdsImageOrSpoc.Image -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterTypeMozAdsImage.allocationSize(value.v1)
+            )
+        }
+        is MozAdsImageOrSpoc.Spoc -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterTypeMozAdsSpoc.allocationSize(value.v1)
+            )
+        }
+    }
+
+    override fun write(value: MozAdsImageOrSpoc, buf: ByteBuffer) {
+        when(value) {
+            is MozAdsImageOrSpoc.Image -> {
+                buf.putInt(1)
+                FfiConverterTypeMozAdsImage.write(value.v1, buf)
+                Unit
+            }
+            is MozAdsImageOrSpoc.Spoc -> {
+                buf.putInt(2)
+                FfiConverterTypeMozAdsSpoc.write(value.v1, buf)
+                Unit
+            }
+        }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
+    }
+}
+
+
+
+
+
 
 enum class MozAdsReportReason {
     
@@ -2908,6 +3022,9 @@ public object FfiConverterTypeMozAdsReportReason: FfiConverterRustBuffer<MozAdsR
 
 
 
+/**
+ * Receives the ads client's metrics, for the app to record in Glean.
+ */
 public interface MozAdsTelemetry {
     
     fun `recordBuildCacheError`(`label`: kotlin.String, `value`: kotlin.String)
@@ -3370,6 +3487,34 @@ public object FfiConverterSequenceTypeMozAdsSpoc: FfiConverterRustBuffer<List<Mo
 /**
  * @suppress
  */
+public object FfiConverterSequenceTypeMozAdsImageOrSpoc: FfiConverterRustBuffer<List<MozAdsImageOrSpoc>> {
+    override fun read(buf: ByteBuffer): List<MozAdsImageOrSpoc> {
+        val len = buf.getInt()
+        return List<MozAdsImageOrSpoc>(len) {
+            FfiConverterTypeMozAdsImageOrSpoc.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<MozAdsImageOrSpoc>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeMozAdsImageOrSpoc.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<MozAdsImageOrSpoc>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeMozAdsImageOrSpoc.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterMapStringUInt: FfiConverterRustBuffer<Map<kotlin.String, kotlin.UInt>> {
     override fun read(buf: ByteBuffer): Map<kotlin.String, kotlin.UInt> {
         val len = buf.getInt()
@@ -3399,6 +3544,45 @@ public object FfiConverterMapStringUInt: FfiConverterRustBuffer<Map<kotlin.Strin
         value.forEach { (k, v) ->
             FfiConverterString.write(k, buf)
             FfiConverterUInt.write(v, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterMapStringDouble: FfiConverterRustBuffer<Map<kotlin.String, kotlin.Double>> {
+    override fun read(buf: ByteBuffer): Map<kotlin.String, kotlin.Double> {
+        val len = buf.getInt()
+        return buildMap<kotlin.String, kotlin.Double>(len) {
+            repeat(len) {
+                val k = FfiConverterString.read(buf)
+                val v = FfiConverterDouble.read(buf)
+                this[k] = v
+            }
+        }
+    }
+
+    override fun allocationSize(value: Map<kotlin.String, kotlin.Double>): ULong {
+        val spaceForMapSize = 4UL
+        val spaceForChildren = value.map { (k, v) ->
+            FfiConverterString.allocationSize(k) +
+            FfiConverterDouble.allocationSize(v)
+        }.sum()
+        return spaceForMapSize + spaceForChildren
+    }
+
+    override fun write(value: Map<kotlin.String, kotlin.Double>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        // The parens on `(k, v)` here ensure we're calling the right method,
+        // which is important for compatibility with older android devices.
+        // Ref https://blog.danlew.net/2017/03/16/kotlin-puzzler-whose-line-is-it-anyways/
+        value.forEach { (k, v) ->
+            FfiConverterString.write(k, buf)
+            FfiConverterDouble.write(v, buf)
         }
     }
 }
@@ -3555,6 +3739,45 @@ public object FfiConverterMapStringSequenceTypeMozAdsSpoc: FfiConverterRustBuffe
         value.forEach { (k, v) ->
             FfiConverterString.write(k, buf)
             FfiConverterSequenceTypeMozAdsSpoc.write(v, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterMapStringSequenceTypeMozAdsImageOrSpoc: FfiConverterRustBuffer<Map<kotlin.String, List<MozAdsImageOrSpoc>>> {
+    override fun read(buf: ByteBuffer): Map<kotlin.String, List<MozAdsImageOrSpoc>> {
+        val len = buf.getInt()
+        return buildMap<kotlin.String, List<MozAdsImageOrSpoc>>(len) {
+            repeat(len) {
+                val k = FfiConverterString.read(buf)
+                val v = FfiConverterSequenceTypeMozAdsImageOrSpoc.read(buf)
+                this[k] = v
+            }
+        }
+    }
+
+    override fun allocationSize(value: Map<kotlin.String, List<MozAdsImageOrSpoc>>): ULong {
+        val spaceForMapSize = 4UL
+        val spaceForChildren = value.map { (k, v) ->
+            FfiConverterString.allocationSize(k) +
+            FfiConverterSequenceTypeMozAdsImageOrSpoc.allocationSize(v)
+        }.sum()
+        return spaceForMapSize + spaceForChildren
+    }
+
+    override fun write(value: Map<kotlin.String, List<MozAdsImageOrSpoc>>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        // The parens on `(k, v)` here ensure we're calling the right method,
+        // which is important for compatibility with older android devices.
+        // Ref https://blog.danlew.net/2017/03/16/kotlin-puzzler-whose-line-is-it-anyways/
+        value.forEach { (k, v) ->
+            FfiConverterString.write(k, buf)
+            FfiConverterSequenceTypeMozAdsImageOrSpoc.write(v, buf)
         }
     }
 }

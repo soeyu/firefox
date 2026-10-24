@@ -46,6 +46,7 @@ DIRS += [
     "mozcachedohttp",
     "multilineeditor",
     "newtab",
+    "nimbus",
     "originattributes",
     "pagedata",
     "passwordmgr",
@@ -79,6 +80,7 @@ DIRS += [
     "uitour",
     "urlbar",
     "webrtc",
+    "widgets",
 ]
 
 DIRS += ["build"]
@@ -111,7 +113,7 @@ EXTRA_PP_COMPONENTS += [
     "BrowserComponents.manifest",
 ]
 
-EXTRA_JS_MODULES += [
+MOZ_SRC_FILES += [
     "AccountsGlue.sys.mjs",
     "BrowserContentHandler.sys.mjs",
     "BrowserGlue.sys.mjs",
@@ -127,7 +129,7 @@ MOZ_SRC_FILES += [
 ]
 
 if CONFIG["MOZ_DEBUG"] or CONFIG["MOZ_DEV_EDITION"] or CONFIG["NIGHTLY_BUILD"]:
-    EXTRA_JS_MODULES += [
+    MOZ_SRC_FILES += [
         "StartupRecorder.sys.mjs",
     ]
 

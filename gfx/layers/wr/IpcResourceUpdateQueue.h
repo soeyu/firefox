@@ -141,9 +141,6 @@ class IpcResourceUpdateQueue {
                                    layers::TextureClient* aTexture,
                                    bool aIsUpdate);
 
-  bool UpdateImageBuffer(wr::ImageKey aKey, const ImageDescriptor& aDescriptor,
-                         mozilla::Range<uint8_t> aBytes);
-
   bool UpdateBlobImage(wr::BlobImageKey aKey,
                        const ImageDescriptor& aDescriptor,
                        mozilla::Range<uint8_t> aBytes,
@@ -159,6 +156,10 @@ class IpcResourceUpdateQueue {
   void DeleteBlobImage(wr::BlobImageKey aKey);
 
   void DeleteSnapshotImage(wr::SnapshotImageKey aKey);
+
+  // Moves a snapshot image created by another bridge of this process to aKey.
+  void AdoptSnapshotImage(wr::SnapshotImageKey aFrom,
+                          wr::SnapshotImageKey aKey);
 
   bool AddRawFont(wr::FontKey aKey, mozilla::Range<uint8_t> aBytes,
                   uint32_t aIndex);

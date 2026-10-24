@@ -242,7 +242,7 @@ nssPKIX509_GetIssuerAndSerialFromDER(NSSDER *der,
     }
     secrv = CERT_SerialNumberFromDERCert(&derCert, &derSerial);
     if (secrv != SECSuccess) {
-        PORT_Free(derSerial.data);
+        PORT_Free(derIssuer.data);
         return PR_FAILURE;
     }
     issuer->data = derIssuer.data;
@@ -541,46 +541,17 @@ nssDecodedPKIXCertificate_Destroy(nssDecodedCert *dc)
     return PR_SUCCESS;
 }
 
-/* see pk11cert.c:pk11_HandleTrustObject */
-static unsigned int
-get_nss3trust_from_nss4trust(nssTrustLevel t)
-{
-    unsigned int rt = 0;
-    if (t == nssTrustLevel_Trusted) {
-        rt |= CERTDB_TERMINAL_RECORD | CERTDB_TRUSTED;
-    }
-    if (t == nssTrustLevel_TrustedDelegator) {
-        rt |= CERTDB_VALID_CA | CERTDB_TRUSTED_CA | CERTDB_NS_TRUSTED_CA;
-    }
-    if (t == nssTrustLevel_NotTrusted) {
-        rt |= CERTDB_TERMINAL_RECORD;
-    }
-    if (t == nssTrustLevel_ValidDelegator) {
-        rt |= CERTDB_VALID_CA;
-    }
-    return rt;
-}
-
 static CERTCertTrust *
 cert_trust_from_stan_trust(NSSTrust *t, PLArenaPool *arena)
 {
-    CERTCertTrust *rvTrust;
-    unsigned int client;
-    if (!t) {
+    if (!t || !arena) {
         return NULL;
     }
-    rvTrust = PORT_ArenaAlloc(arena, sizeof(CERTCertTrust));
-    if (!rvTrust)
+    CERTCertTrust *rvTrust = PORT_ArenaAlloc(arena, sizeof(CERTCertTrust));
+    if (!rvTrust) {
         return NULL;
-    rvTrust->sslFlags = get_nss3trust_from_nss4trust(t->serverAuth);
-    client = get_nss3trust_from_nss4trust(t->clientAuth);
-    if (client & (CERTDB_TRUSTED_CA | CERTDB_NS_TRUSTED_CA)) {
-        client &= ~(CERTDB_TRUSTED_CA | CERTDB_NS_TRUSTED_CA);
-        rvTrust->sslFlags |= CERTDB_TRUSTED_CLIENT_CA;
     }
-    rvTrust->sslFlags |= client;
-    rvTrust->emailFlags = get_nss3trust_from_nss4trust(t->emailProtection);
-    rvTrust->objectSigningFlags = get_nss3trust_from_nss4trust(t->codeSigning);
+    nssTrust_ToCERTCertTrust(t, rvTrust);
     return rvTrust;
 }
 
@@ -589,11 +560,9 @@ nssTrust_HandleTrustForCERTCert(CERTCertificate *cert, CERTCertTrust *trustPtr)
 {
     NSSCertificate *c = cert->nssCertificate;
     NSSTrustDomain *td = STAN_GetDefaultTrustDomain();
-    NSSTrust *t;
-    t = nssTrustDomain_FindTrustForCertificate(td, c);
+    NSSTrust *t = nssTrustDomain_FindTrustForCertificate(td, &c->encoding, &c->issuer, &c->serial);
     if (t) {
-        CERTCertTrust *rvTrust;
-        rvTrust = cert_trust_from_stan_trust(t, cert->arena);
+        CERTCertTrust *rvTrust = cert_trust_from_stan_trust(t, cert->arena);
         nssTrust_Destroy(t);
         if (rvTrust) {
             *trustPtr = *rvTrust;
@@ -608,8 +577,7 @@ nssTrust_GetCERTCertTrustForCert(NSSCertificate *c, CERTCertificate *cc)
 {
     CERTCertTrust *rvTrust = NULL;
     NSSTrustDomain *td = STAN_GetDefaultTrustDomain();
-    NSSTrust *t;
-    t = nssTrustDomain_FindTrustForCertificate(td, c);
+    NSSTrust *t = nssTrustDomain_FindTrustForCertificate(td, &c->encoding, &c->issuer, &c->serial);
     if (t) {
         rvTrust = cert_trust_from_stan_trust(t, cc->arena);
         if (!rvTrust) {
@@ -779,20 +747,15 @@ fill_CERTCertificateFields(NSSCertificate *c, CERTCertificate *cc, NSSTrust *ccT
         NSSTrust *nssTrust = ccTrust;
         NSSTrust *tdTrust = NULL;
         if (!nssTrust) {
-            /* chicken and egg issue:
-             *
-             * c->issuer and c->serial are empty at this point, but
-             * nssTrustDomain_FindTrustForCertificate use them to look up
-             * up the trust object, so we point them to cc->derIssuer and
-             * cc->serialNumber.
-             *
-             * Our caller will fill these in with proper arena copies when we
-             * return. */
-            c->issuer.data = cc->derIssuer.data;
-            c->issuer.size = cc->derIssuer.len;
-            c->serial.data = cc->serialNumber.data;
-            c->serial.size = cc->serialNumber.len;
-            nssTrust = tdTrust = nssTrustDomain_FindTrustForCertificate(context->td, c);
+            NSSDER encoding;
+            NSSITEM_FROM_SECITEM(&encoding, &cc->derCert);
+            NSSDER issuer;
+            NSSDER serial;
+            if (nssPKIX509_GetIssuerAndSerialFromDER(&encoding, &issuer, &serial) == PR_SUCCESS) {
+                nssTrust = tdTrust = nssTrustDomain_FindTrustForCertificate(context->td, &encoding, &issuer, &serial);
+                PORT_Free(issuer.data);
+                PORT_Free(serial.data);
+            }
         }
         if (nssTrust) {
             trust = cert_trust_from_stan_trust(nssTrust, cc->arena);
@@ -949,7 +912,7 @@ stan_GetCERTCertificate(NSSCertificate *c, PRBool forceUpdate)
              * builtin trust module is loaded, so look for the trust
              * again, but don't set the empty trust if it is not found.
              */
-            NSSTrust *t = nssTrustDomain_FindTrustForCertificate(c->object.cryptoContext->td, c);
+            NSSTrust *t = nssTrustDomain_FindTrustForCertificate(c->object.cryptoContext->td, &c->encoding, &c->issuer, &c->serial);
             if (!t) {
                 goto loser;
             }
@@ -1447,7 +1410,7 @@ STAN_DeleteCertTrustMatchingSlot(NSSCertificate *c)
     nssPKIObject *cobject = &c->object;
 
     NSSTrustDomain *td = STAN_GetDefaultTrustDomain();
-    NSSTrust *nssTrust = nssTrustDomain_FindTrustForCertificate(td, c);
+    NSSTrust *nssTrust = nssTrustDomain_FindTrustForCertificate(td, &c->encoding, &c->issuer, &c->serial);
     if (!nssTrust) {
         return PR_FAILURE;
     }
@@ -1479,66 +1442,6 @@ STAN_DeleteCertTrustMatchingSlot(NSSCertificate *c)
     nssPKIObject_Unlock(cobject);
     nssPKIObject_Destroy(cobject);
     NSSRWLock_UnlockRead(td->tokensLock);
-    return nssrv;
-}
-
-/* CERT_TraversePermCertsForSubject */
-NSS_IMPLEMENT PRStatus
-nssTrustDomain_TraverseCertificatesBySubject(
-    NSSTrustDomain *td,
-    NSSDER *subject,
-    PRStatus (*callback)(NSSCertificate *c, void *arg),
-    void *arg)
-{
-    PRStatus nssrv = PR_SUCCESS;
-    NSSArena *tmpArena;
-    NSSCertificate **subjectCerts;
-    NSSCertificate *c;
-    PRIntn i;
-    tmpArena = NSSArena_Create();
-    if (!tmpArena) {
-        return PR_FAILURE;
-    }
-    subjectCerts = NSSTrustDomain_FindCertificatesBySubject(td, subject, NULL,
-                                                            0, tmpArena);
-    if (subjectCerts) {
-        for (i = 0, c = subjectCerts[i]; c; i++) {
-            nssrv = callback(c, arg);
-            if (nssrv != PR_SUCCESS)
-                break;
-        }
-    }
-    nssArena_Destroy(tmpArena);
-    return nssrv;
-}
-
-/* CERT_TraversePermCertsForNickname */
-NSS_IMPLEMENT PRStatus
-nssTrustDomain_TraverseCertificatesByNickname(
-    NSSTrustDomain *td,
-    NSSUTF8 *nickname,
-    PRStatus (*callback)(NSSCertificate *c, void *arg),
-    void *arg)
-{
-    PRStatus nssrv = PR_SUCCESS;
-    NSSArena *tmpArena;
-    NSSCertificate **nickCerts;
-    NSSCertificate *c;
-    PRIntn i;
-    tmpArena = NSSArena_Create();
-    if (!tmpArena) {
-        return PR_FAILURE;
-    }
-    nickCerts = NSSTrustDomain_FindCertificatesByNickname(td, nickname, NULL,
-                                                          0, tmpArena);
-    if (nickCerts) {
-        for (i = 0, c = nickCerts[i]; c; i++) {
-            nssrv = callback(c, arg);
-            if (nssrv != PR_SUCCESS)
-                break;
-        }
-    }
-    nssArena_Destroy(tmpArena);
     return nssrv;
 }
 

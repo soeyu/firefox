@@ -38,6 +38,7 @@ import androidx.core.os.BundleCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.text.layoutDirection
 import androidx.core.view.doOnLayout
+import androidx.fragment.app.Fragment
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation.NavController
@@ -118,8 +119,6 @@ import org.mozilla.fenix.components.accounts.FenixFxAEntryPoint
 import org.mozilla.fenix.components.appstate.AppAction
 import org.mozilla.fenix.components.appstate.AppAction.ShareAction
 import org.mozilla.fenix.components.appstate.OrientationMode
-import org.mozilla.fenix.components.ipprotection.ErrorMessages
-import org.mozilla.fenix.components.ipprotection.IPProtectionInfoPrompter
 import org.mozilla.fenix.components.menu.MenuAccessPoint
 import org.mozilla.fenix.components.menu.share.QRCodeDialogFragment
 import org.mozilla.fenix.components.metrics.BreadcrumbsRecorder
@@ -156,6 +155,7 @@ import org.mozilla.fenix.ext.recordEventInNimbus
 import org.mozilla.fenix.ext.setNavigationIcon
 import org.mozilla.fenix.extension.WebExtensionPromptFeature
 import org.mozilla.fenix.home.HomeFragment
+import org.mozilla.fenix.home.HomeFragmentDirections
 import org.mozilla.fenix.home.TopSitesRefresher
 import org.mozilla.fenix.home.intent.AssistIntentProcessor
 import org.mozilla.fenix.home.intent.CrashReporterIntentProcessor
@@ -169,6 +169,8 @@ import org.mozilla.fenix.home.intent.OpenSpecificTabIntentProcessor
 import org.mozilla.fenix.home.intent.SpeechProcessingIntentProcessor
 import org.mozilla.fenix.home.intent.StartSearchIntentProcessor
 import org.mozilla.fenix.home.topsites.DefaultPinnedSitesBinding
+import org.mozilla.fenix.ipprotection.store.ErrorMessages
+import org.mozilla.fenix.ipprotection.store.IPProtectionInfoPrompter
 import org.mozilla.fenix.messaging.FenixMessageSurfaceId
 import org.mozilla.fenix.messaging.MessageNotificationWorker
 import org.mozilla.fenix.nimbus.FxNimbus
@@ -605,6 +607,8 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
             } else {
                 StartOnHome.enterHomeScreen.record(NoExtras())
             }
+        } else {
+            processLaunchIntentAfterOnboarding()
         }
 
         // This will record an event in Nimbus' internal event store. Used for behavioral targeting
@@ -1333,22 +1337,15 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
         if (event.action == KeyEvent.ACTION_DOWN && event.keyCode == KeyEvent.KEYCODE_MENU) {
             val navHostFragment = supportFragmentManager.findFragmentById(R.id.container) as? NavHostFragment
             val currentFragment = navHostFragment?.childFragmentManager?.primaryNavigationFragment
-            when (currentFragment) {
-                is HomeFragment -> {
-                    val action = NavGraphDirections.actionGlobalMenuDialogFragment(MenuAccessPoint.Home)
-                    navHost.navController.navigate(action)
-                    return true
-                }
-
-                is BrowserFragment -> {
-                    val action =
-                        when (getSettings().isMenuCustomizationEnabled) {
-                            true -> BrowserFragmentDirections.actionBrowserFragmentToMenuFragment()
-                            else -> NavGraphDirections.actionGlobalMenuDialogFragment(MenuAccessPoint.Browser)
-                        }
-                    navHost.navController.navigate(action)
-                    return true
-                }
+            if (
+                handleMenuKeyPress(
+                    event = event,
+                    currentFragment = currentFragment,
+                    navController = navHost.navController,
+                    isMenuCustomizationEnabled = getSettings().isMenuCustomizationEnabled,
+                )
+            ) {
+                return true
             }
         }
         return super.dispatchKeyEvent(event)
@@ -1578,6 +1575,13 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
         if (directions != null) {
             navHost.navController.nav(fragmentId, directions)
         }
+    }
+
+    /**
+     * Onboarding skips processing of the launch intent in [onCreate], so process it once the user completes onboarding.
+     */
+    private fun processLaunchIntentAfterOnboarding() {
+        components.fenixOnboarding.registerOnboardingCompletedListener(this) { processIntent(intent) }
     }
 
     @VisibleForTesting
@@ -1856,5 +1860,48 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
                 R.id.turnOnSyncFragment,
                 R.id.pairFragment,
             )
+
+        /**
+         * Opens the menu for a menu key [event] when [currentFragment] is home or the browser.
+         *
+         * @return true if the event was consumed, false if it should be handled elsewhere.
+         */
+        @VisibleForTesting
+        internal fun handleMenuKeyPress(
+            event: KeyEvent,
+            currentFragment: Fragment?,
+            navController: NavController,
+            isMenuCustomizationEnabled: Boolean,
+        ): Boolean {
+            val (expectedDestinationId, directions) =
+                when (currentFragment) {
+                    is HomeFragment ->
+                        R.id.homeFragment to
+                            when (isMenuCustomizationEnabled) {
+                                true -> HomeFragmentDirections.actionHomeFragmentToMenuFragment(MenuAccessPoint.Home)
+                                else -> NavGraphDirections.actionGlobalMenuDialogFragment(MenuAccessPoint.Home)
+                            }
+
+                    is BrowserFragment ->
+                        R.id.browserFragment to
+                            when (isMenuCustomizationEnabled) {
+                                true ->
+                                    BrowserFragmentDirections.actionBrowserFragmentToMenuFragment(
+                                        MenuAccessPoint.Browser
+                                    )
+                                else -> NavGraphDirections.actionGlobalMenuDialogFragment(MenuAccessPoint.Browser)
+                            }
+
+                    else -> return false
+                }
+
+            // Hardware keyboards auto repeat ACTION_DOWN while the key is held down, so only
+            // the initial press may open the menu. Navigating is also skipped when the menu is
+            // already open.
+            if (event.repeatCount == 0) {
+                navController.nav(expectedDestinationId, directions)
+            }
+            return true
+        }
     }
 }

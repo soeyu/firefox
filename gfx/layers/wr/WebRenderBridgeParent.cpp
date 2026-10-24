@@ -616,6 +616,39 @@ static bool ReadRawFont(const OpAddRawFont& aOp, wr::ShmSegmentsReader& aReader,
   return true;
 }
 
+already_AddRefed<WebRenderBridgeParent>
+WebRenderBridgeParent::FindSnapshotSourceBridge(
+    const wr::IdNamespace& aNamespace) {
+  // The source namespace is this bridge's own, so no lookup is needed.
+  if (aNamespace == mLateInit->mIdNamespace) {
+    return do_AddRef(this);
+  }
+  RefPtr<WebRenderBridgeParent> source;
+  bool done = false;
+  CompositorBridgeParent::WithIndirectLayerTreesLock(
+      [&](const StaticMonitorAutoLock& aLock) {
+        CompositorBridgeParent::ForEachLayerTreeStateUnderLock(
+            aLock,
+            [&](LayersId, CompositorBridgeParent::LayerTreeState& aState) {
+              WebRenderBridgeParent* bridge = aState.mWrBridge;
+              if (done || !bridge || bridge == this || !bridge->mLateInit ||
+                  !(bridge->mLateInit->mIdNamespace == aNamespace)) {
+                return;
+              }
+              // Namespaces are unique, so no other bridge can match.
+              done = true;
+              // Unlike pids, child ids are never reused. Each WebRender window
+              // has its own resource cache.
+              if (bridge->OtherChildID() == OtherChildID() &&
+                  bridge->mLateInit->mApi->GetId() ==
+                      mLateInit->mApi->GetId()) {
+                source = bridge;
+              }
+            });
+      });
+  return source.forget();
+}
+
 bool WebRenderBridgeParent::UpdateResources(
     const nsTArray<OpUpdateResource>& aResourceUpdates,
     const nsTArray<RefCountedShmem>& aSmallShmems,
@@ -632,6 +665,10 @@ bool WebRenderBridgeParent::UpdateResources(
       break;
     }
   }
+
+  // The snapshots of one adoption come from one bridge. Find it only once.
+  Maybe<wr::IdNamespace> adoptSourceNamespace;
+  bool adoptSourceFound = false;
 
   bool success = true;
   for (const auto& cmd : aResourceUpdates) {
@@ -721,6 +758,33 @@ bool WebRenderBridgeParent::UpdateResources(
           break;
         }
         aUpdates.AddSnapshotImage(op.key());
+        break;
+      }
+      case OpUpdateResource::TOpAdoptSnapshotImage: {
+        const auto& op = cmd.get_OpAdoptSnapshotImage();
+        if (NS_WARN_IF(!MatchesNamespace(wr::AsImageKey(op.key())))) {
+          break;
+        }
+        const wr::IdNamespace fromNamespace =
+            wr::AsImageKey(op.fromKey()).mNamespace;
+        if (adoptSourceNamespace != Some(fromNamespace)) {
+          adoptSourceNamespace = Some(fromNamespace);
+          RefPtr<WebRenderBridgeParent> source =
+              FindSnapshotSourceBridge(fromNamespace);
+          adoptSourceFound = !!source;
+          // The transaction that captured the snapshots can still wait in
+          // the queue of the source bridge, for example for remote textures.
+          // Send it to WebRender before the adoption.
+          if (source && source != this) {
+            source->FlushPendingWrTransactionEventsWithWait();
+          }
+        }
+        // The source bridge can already be gone if the old document was torn
+        // down before the restored document adopted the snapshots.
+        if (NS_WARN_IF(!adoptSourceFound)) {
+          break;
+        }
+        aUpdates.AdoptSnapshotImage(op.fromKey(), op.key());
         break;
       }
       case OpUpdateResource::TOpDeleteSnapshotImage: {
@@ -1303,7 +1367,7 @@ void WebRenderBridgeParent::SetAPZSampleTime() {
 
 bool WebRenderBridgeParent::SetDisplayList(
     const LayoutDeviceRect& aRect, ipc::ByteBuf&& aDLItems,
-    ipc::ByteBuf&& aSpatialTreeDL,
+    ipc::ByteBuf&& aSpatialTreeDL, ipc::ByteBuf&& aInternerDelta,
     const wr::BuiltDisplayListDescriptor& aDLDesc,
     const nsTArray<OpUpdateResource>& aResourceUpdates,
     const nsTArray<RefCountedShmem>& aSmallShmems,
@@ -1315,6 +1379,7 @@ bool WebRenderBridgeParent::SetDisplayList(
 
   wr::Vec<uint8_t> dlItems(std::move(aDLItems));
   wr::Vec<uint8_t> dlSpatialTreeData(std::move(aSpatialTreeDL));
+  wr::Vec<uint8_t> dlInternerDelta(std::move(aInternerDelta));
 
   if (IsRootWebRenderBridgeParent()) {
     LayoutDeviceIntSize widgetSize = mWidget->GetClientSize();
@@ -1328,8 +1393,11 @@ bool WebRenderBridgeParent::SetDisplayList(
     pipelineId = gfx::GetTemporaryWebRenderPipelineId(pipelineId);
   }
 
+  if (StaticPrefs::gfx_webrender_enforce_embed_policy_AtStartup()) {
+    aTxn.SetEmbedPolicy(pipelineId, ComputeEmbedPolicy());
+  }
   aTxn.SetDisplayList(aWrEpoch, mLateInit->mIdNamespace, pipelineId, aDLDesc,
-                      dlItems, dlSpatialTreeData);
+                      dlItems, dlSpatialTreeData, dlInternerDelta);
 
   if (aRenderOffscreen) {
     aTxn.RenderOffscreen(pipelineId);
@@ -1388,6 +1456,32 @@ void WebRenderBridgeParent::SanitizeScrollData(
   ClearUnconfirmedReferentIds(aScrollData, GetLayersId());
 }
 
+Maybe<nsTArray<uint32_t>> WebRenderBridgeParent::ComputeEmbedPolicy() const {
+  if (IsRootWebRenderBridgeParent()) {
+    return Nothing();
+  }
+  nsTArray<uint32_t> namespaces;
+  if (mCompositorBridge) {
+    namespaces.AppendElement(mCompositorBridge->GetNamespace());
+  }
+  CompositorBridgeParent::CollectEmbeddedChildNamespaces(GetLayersId(),
+                                                         namespaces);
+  return Some(std::move(namespaces));
+}
+
+void WebRenderBridgeParent::RefreshEmbedPolicy() {
+  MOZ_ASSERT(CompositorThreadHolder::IsInCompositorThread());
+  // Before initialization no display list was sent, and the first one carries
+  // the policy.
+  if (mDestroyed || !mLateInit || IsRootWebRenderBridgeParent()) {
+    return;
+  }
+  wr::TransactionBuilder txn(mLateInit->mApi);
+  txn.SetLowPriority(true);
+  txn.SetEmbedPolicy(mPipelineId, ComputeEmbedPolicy());
+  mLateInit->mApi->SendTransaction(txn);
+}
+
 bool WebRenderBridgeParent::ProcessDisplayListData(
     DisplayListData& aDisplayList, wr::Epoch aWrEpoch,
     const TimeStamp& aTxnStartTime, bool aValidTransaction,
@@ -1430,10 +1524,12 @@ bool WebRenderBridgeParent::ProcessDisplayListData(
   success =
       ProcessWebRenderParentCommands(aDisplayList.mCommands, txn) && success;
 
-  if (aDisplayList.mDLItems && aDisplayList.mDLSpatialTree) {
+  if (aDisplayList.mDLItems && aDisplayList.mDLSpatialTree &&
+      aDisplayList.mDLInternerDelta) {
     success = SetDisplayList(
                   aDisplayList.mRect, std::move(aDisplayList.mDLItems.ref()),
                   std::move(aDisplayList.mDLSpatialTree.ref()),
+                  std::move(aDisplayList.mDLInternerDelta.ref()),
                   aDisplayList.mDLDesc, aDisplayList.mResourceUpdates,
                   aDisplayList.mSmallShmems, aDisplayList.mLargeShmems,
                   aTxnStartTime, txn, aWrEpoch, aVsyncId, aRenderOffscreen) &&
@@ -3223,6 +3319,14 @@ TextureFactoryIdentifier WebRenderBridgeParent::GetTextureFactoryIdentifier() {
       mLateInit->mAsyncImageManager->UseCompositorWnd(), false, false, false,
       supportsD3D11NV12, mLateInit->mApi->GetSyncHandle());
   return ident;
+}
+
+Maybe<TextureFactoryIdentifier>
+WebRenderBridgeParent::MaybeGetTextureFactoryIdentifier() {
+  if (mDestroyed || mLateInit.isNothing() || !mLateInit->mApi) {
+    return Nothing();
+  }
+  return Some(GetTextureFactoryIdentifier());
 }
 
 wr::Epoch WebRenderBridgeParent::GetNextWrEpoch() {

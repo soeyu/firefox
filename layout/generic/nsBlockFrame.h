@@ -444,11 +444,11 @@ class nsBlockFrame : public nsContainerFrame {
   }
 
   nsLineBox* NewLineBox(nsIFrame* aFrame, bool aIsBlock) {
-    return NS_NewLineBox(PresShell(), aFrame, aIsBlock);
+    return NS_NewLineBox(aFrame, aIsBlock);
   }
   nsLineBox* NewLineBox(nsLineBox* aFromLine, nsIFrame* aFrame,
                         int32_t aCount) {
-    return NS_NewLineBox(PresShell(), aFromLine, aFrame, aCount);
+    return NS_NewLineBox(aFromLine, aFrame, aCount);
   }
   void FreeLineBox(nsLineBox* aLine) {
     if (aLine == GetLineCursorForDisplay()) {
@@ -457,7 +457,7 @@ class nsBlockFrame : public nsContainerFrame {
     if (aLine == GetLineCursorForQuery()) {
       ClearLineCursorForQuery();
     }
-    aLine->Destroy(PresShell());
+    aLine->Destroy();
   }
   /**
    * Helper method for StealFrame.
@@ -557,7 +557,9 @@ class nsBlockFrame : public nsContainerFrame {
 
   /** Returns the effective align-content of this frame */
   mozilla::StyleAlignFlags EffectiveAlignContent() const {
-    if (!mozilla::StaticPrefs::
+    auto alignContent = StylePosition()->mAlignContent.primary;
+    if (alignContent == mozilla::StyleAlignFlags::NORMAL ||
+        !mozilla::StaticPrefs::
             layout_forms_button_input_align_content_block_enabled()) {
       if (IsButtonLike()) {
         return mozilla::StyleAlignFlags::CENTER;
@@ -567,7 +569,7 @@ class nsBlockFrame : public nsContainerFrame {
                mozilla::StyleAlignFlags::UNSAFE;
       }
     }
-    return StylePosition()->mAlignContent.primary;
+    return alignContent;
   }
 
   bool IsContentAligned() const {
@@ -756,11 +758,7 @@ class nsBlockFrame : public nsContainerFrame {
       if (aThisFrame != aRootFrame) {
         return false;
       }
-      if (clampedBSize == 0) {
-        MOZ_ASSERT(targetFrame == nullptr && targetLine == nullptr);
-        return true;
-      }
-      return false;
+      return !clampedBSize && !targetFrame && !targetLine;
     }
   };
   nsBlockFrame* GetLineClampRoot() const;

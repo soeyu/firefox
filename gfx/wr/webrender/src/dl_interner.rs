@@ -17,16 +17,61 @@
 //! the inner level deliberately has no free list - if a store allocated for
 //! itself the two sides would diverge with nothing able to notice.
 
-// Nothing feeds a store yet: the scene builder thread starts driving the
-// allocator and applying deltas in the next part of this series.
-#![allow(dead_code)]
-
 use crate::intern::ItemUid;
-use crate::internal_types::{FastHashMap, FastHashSet};
+use crate::internal_types::FastHashMap;
 use api::interning::{BuildId, BuilderId};
-use api::PipelineId;
+use api::{DocumentId, FontRenderMode, IdNamespace, PipelineId};
+use glyph_rasterizer::SharedFontResources;
 use std::marker::PhantomData;
 use std::{fmt, ops};
+
+/// Every follower store the render backend holds, one line each: the field
+/// name (the same one `enumerate_dl_interned_types!` in `webrender_api` uses
+/// for the delta), the content key type, the value the store holds for it,
+/// the profiler gauge set from the store's size, and the field of the
+/// interning memory report it is accounted under.
+///
+/// Adding a type here and to the api-side list is all the plumbing a
+/// primitive needs on the receiving side; see `doc/dl-builder-interning.md`.
+#[macro_export]
+macro_rules! enumerate_dl_stores {
+    ($macro_name: ident) => {
+        $macro_name! {
+            rectangles: api::interned_prims::RectangleKey => crate::prim_store::rectangle::RectangleTemplate, INTERNED_PRIMITIVES, prim,
+        }
+    }
+}
+
+/// The follower stores the scene builder itself reads, in the same shape as
+/// `enumerate_dl_stores!` minus the gauge. Every primitive type has one
+/// holding its `PrimPlacement`, since a primitive's display item carries only
+/// the handle, the spatial id and the clip chain. Clips will need their key,
+/// since clip chain building, slice partitioning and hit testing read it.
+#[macro_export]
+macro_rules! enumerate_scene_dl_stores {
+    ($macro_name: ident) => {
+        $macro_name! {
+            rectangles: api::interned_prims::RectangleKey => crate::prim_store::PrimPlacement, prim,
+        }
+    }
+}
+
+/// What a store needs to turn a content key into the value it holds.
+// Rectangles resolve from the key alone; the fields are for fonts and images.
+#[allow(dead_code)]
+pub struct DlResolveContext<'a> {
+    /// The id namespace the display list carrying the delta was submitted
+    /// with, for validating any resource key the interned item names.
+    pub id_namespace: IdNamespace,
+    pub fonts: &'a SharedFontResources,
+    pub default_font_render_mode: FontRenderMode,
+}
+
+/// A store value that can be built from its content key. Done where the delta
+/// is applied, once per interned entry rather than once per scene build.
+pub trait DlResolve<K>: Sized {
+    fn resolve(key: &K, ctx: &DlResolveContext) -> Self;
+}
 
 /// Dense index identifying one content display list builder's slot space.
 /// Recycled when its pipeline goes away, so it stays small enough to index an
@@ -134,6 +179,8 @@ impl<K> DlHandle<K> {
 }
 
 /// What the scene builder tracks for each content display list builder.
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
 struct BuilderState {
     namespace: DlNamespace,
     /// The builder whose stream we are following, once one has claimed this
@@ -168,16 +215,28 @@ pub enum DeltaAction {
     Ignore,
 }
 
+/// A pipeline as seen through one document. One scene builder serves every
+/// document on its backend, and a pipeline can be in two of them at once: a
+/// tab moved to another window sends display lists to the new window's
+/// document while the old one has yet to remove it. Each gets its own
+/// namespace, so that a namespace's open and close always travel with the same
+/// document's transactions, which the render backend applies in order.
+pub type DlPipelineKey = (DocumentId, PipelineId);
+
 /// Maps each pipeline to the state of the builder producing its display lists:
 /// the namespace its slots live in, and where its delta stream has got to.
 /// Lives on the scene builder; content knows nothing about either, so there is
 /// no allocation round trip.
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
 #[derive(Default)]
 pub struct DlBuilderMap {
-    by_pipeline: FastHashMap<PipelineId, BuilderState>,
+    by_pipeline: FastHashMap<DlPipelineKey, BuilderState>,
     free: Vec<DlNamespace>,
-    /// Pipelines removed but not yet released; see `remove_pipeline`.
-    pending_removals: FastHashSet<PipelineId>,
+    /// Pipelines removed but not yet released, and whether their document is
+    /// gone, in which case any document's scene build releases them; see
+    /// `remove_pipeline` and `remove_document`.
+    pending_removals: FastHashMap<DlPipelineKey, bool>,
     next: u32,
     /// How many times each namespace index has been handed to a builder. Stays
     /// in step with the store's count, which advances on `open`, because every
@@ -186,19 +245,21 @@ pub struct DlBuilderMap {
 }
 
 impl DlBuilderMap {
-    pub fn get(&self, pipeline_id: PipelineId) -> Option<DlNamespace> {
-        self.by_pipeline.get(&pipeline_id).map(|state| state.namespace)
+    pub fn get(&self, document_id: DocumentId, pipeline_id: PipelineId) -> Option<DlNamespace> {
+        self.by_pipeline.get(&(document_id, pipeline_id)).map(|state| state.namespace)
     }
 
-    /// The namespace of a pipeline that is being built into a scene, and its
-    /// generation, so it must have one: a namespace is allocated on the
-    /// pipeline's first display list and released at the same point the scene
-    /// stops referencing it.
-    pub fn expect(&self, pipeline_id: PipelineId) -> (DlNamespace, u32) {
-        let namespace = self
-            .get(pipeline_id)
-            .unwrap_or_else(|| panic!("no namespace for {:?}", pipeline_id));
-        (namespace, self.generations[namespace.0 as usize])
+    /// The map as seen by a scene build of `document_id`.
+    pub fn document(&self, document_id: DocumentId) -> DlDocumentBuilders {
+        DlDocumentBuilders { map: self, document_id }
+    }
+
+    /// Every namespace currently assigned to a pipeline, with its generation,
+    /// including those whose release `take_removals` still owes.
+    pub fn live_namespaces(&self) -> impl Iterator<Item = (DlNamespace, u32)> + '_ {
+        self.by_pipeline.values().map(move |state| {
+            (state.namespace, self.generations[state.namespace.0 as usize])
+        })
     }
 
     fn bump_generation(&mut self, namespace: DlNamespace) {
@@ -213,11 +274,17 @@ impl DlBuilderMap {
     /// display list seen for it. A `true` second element means it was just
     /// allocated and the caller must open it on every store before applying
     /// anything to it.
-    pub fn get_or_alloc(&mut self, pipeline_id: PipelineId) -> (DlNamespace, bool) {
-        // Live again, so any release owed for an earlier removal is off.
-        self.pending_removals.remove(&pipeline_id);
+    pub fn get_or_alloc(
+        &mut self,
+        document_id: DocumentId,
+        pipeline_id: PipelineId,
+    ) -> (DlNamespace, bool) {
+        let key = (document_id, pipeline_id);
 
-        if let Some(state) = self.by_pipeline.get(&pipeline_id) {
+        // Live again, so any release owed for an earlier removal is off.
+        self.pending_removals.remove(&key);
+
+        if let Some(state) = self.by_pipeline.get(&key) {
             return (state.namespace, false);
         }
 
@@ -228,7 +295,7 @@ impl DlBuilderMap {
         });
 
         self.by_pipeline.insert(
-            pipeline_id,
+            key,
             BuilderState {
                 namespace,
                 builder: None,
@@ -255,6 +322,7 @@ impl DlBuilderMap {
     /// space. See `DeltaAction` for the three ways that resolves.
     pub fn check_delta(
         &mut self,
+        document_id: DocumentId,
         pipeline_id: PipelineId,
         builder: BuilderId,
         build: BuildId,
@@ -262,7 +330,7 @@ impl DlBuilderMap {
     ) -> DeltaAction {
         let state = self
             .by_pipeline
-            .get_mut(&pipeline_id)
+            .get_mut(&(document_id, pipeline_id))
             .expect("delta for a pipeline with no namespace");
 
         // Set when the arm below decides this is a takeover; the generation bump
@@ -325,32 +393,83 @@ impl DlBuilderMap {
         action
     }
 
-    /// Note that a pipeline has been removed. Its namespace is *not* released
-    /// yet: removing a pipeline does not rebuild the scene, so the render
-    /// backend goes on drawing one whose primitives still reference it. Calling
-    /// `take_removals` at the next scene build is what releases it.
-    pub fn remove_pipeline(&mut self, pipeline_id: PipelineId) {
-        self.pending_removals.insert(pipeline_id);
+    /// Note that `document_id` has removed a pipeline. Its namespace is *not*
+    /// released yet: removing a pipeline does not rebuild the scene, so the
+    /// render backend goes on drawing one whose primitives still reference it.
+    /// Calling `take_removals` at that document's next scene build is what
+    /// releases it.
+    ///
+    /// Only that document's build will do. Another document's scene says
+    /// nothing about what this one still references, and the render backend
+    /// may be holding this document's ops - including the namespace's open -
+    /// until it next swaps a scene, which a release from elsewhere would
+    /// overtake.
+    pub fn remove_pipeline(&mut self, document_id: DocumentId, pipeline_id: PipelineId) {
+        self.pending_removals.insert((document_id, pipeline_id), false);
     }
 
-    /// Release everything `remove_pipeline` has noted since the last call, and
-    /// return the namespaces to close.
+    /// A document is gone, along with every pipeline it had a namespace for.
+    /// As it will build no more scenes, these are released by whichever
+    /// document builds next. That is sound because the render backend learns
+    /// of the deletion before that build's results, and flushes the ops it was
+    /// holding for the document first.
+    pub fn remove_document(&mut self, document_id: DocumentId) {
+        for key in self.by_pipeline.keys() {
+            if key.0 == document_id {
+                self.pending_removals.insert(*key, true);
+            }
+        }
+    }
+
+    /// Release what `document_id` has removed since its last call, along with
+    /// the pipelines of deleted documents, and return the namespaces to close.
     ///
-    /// The caller must have just built a scene that references none of them.
-    /// Holding the ids until then is also what keeps invariant 4: a namespace
-    /// cannot be handed to another pipeline while a live scene still points
-    /// into it.
-    pub fn take_removals(&mut self) -> Vec<DlNamespace> {
+    /// The caller must have just built a scene for `document_id`, and that
+    /// scene references none of them. Holding the ids until then is also what
+    /// keeps invariant 4: a namespace cannot be handed to another pipeline
+    /// while a live scene still points into it.
+    pub fn take_removals(&mut self, document_id: DocumentId) -> Vec<DlNamespace> {
         let mut namespaces = Vec::new();
 
-        for pipeline_id in self.pending_removals.drain() {
-            if let Some(state) = self.by_pipeline.remove(&pipeline_id) {
+        let mut released = Vec::new();
+        self.pending_removals.retain(|key, orphaned| {
+            let release = *orphaned || key.0 == document_id;
+            if release {
+                released.push(*key);
+            }
+            !release
+        });
+
+        for key in released {
+            if let Some(state) = self.by_pipeline.remove(&key) {
                 self.free.push(state.namespace);
                 namespaces.push(state.namespace);
             }
         }
 
         namespaces
+    }
+}
+
+/// The builder map restricted to one document, for that document's scene
+/// builds.
+#[derive(Copy, Clone)]
+pub struct DlDocumentBuilders<'a> {
+    map: &'a DlBuilderMap,
+    document_id: DocumentId,
+}
+
+impl<'a> DlDocumentBuilders<'a> {
+    /// The namespace of a pipeline that is being built into a scene, and its
+    /// generation, so it must have one: a namespace is allocated on the
+    /// pipeline's first display list and released at the same point the scene
+    /// stops referencing it.
+    pub fn expect(&self, pipeline_id: PipelineId) -> (DlNamespace, u32) {
+        let namespace = self
+            .map
+            .get(self.document_id, pipeline_id)
+            .unwrap_or_else(|| panic!("no namespace for {:?} in {:?}", pipeline_id, self.document_id));
+        (namespace, self.map.generations[namespace.0 as usize])
     }
 }
 
@@ -361,6 +480,7 @@ impl DlBuilderMap {
 /// allocated namespace, `Close` at the point the scene stops referencing the
 /// pipeline. `T` is the store's own view of an interned item, derived from the
 /// content key by whoever built the list.
+#[derive(Clone)]
 pub enum DlOp<T> {
     Open(DlNamespace),
     Insert {
@@ -375,8 +495,54 @@ pub enum DlOp<T> {
     Close(DlNamespace),
 }
 
+/// Turn one type's delta into store ops. Adds before removes, which cannot
+/// conflict within a delta: a slot this build frees is only ever handed out
+/// again by a later one.
+pub fn resolve_into<K, T>(
+    ops: &mut Vec<DlOp<T>>,
+    namespace: DlNamespace,
+    delta: &api::interning::InternOps<K>,
+    mut resolve: impl FnMut(&K) -> T,
+) {
+    for add in &delta.adds {
+        ops.push(DlOp::Insert {
+            namespace,
+            slot: add.slot,
+            value: resolve(&add.key),
+        });
+    }
+
+    for &slot in &delta.removes {
+        ops.push(DlOp::Remove { namespace, slot });
+    }
+}
+
+/// Adds and removes in one resolved op list. A close is not counted: it drops a
+/// whole namespace at once, and totalling its slots would cost a lookup per op
+/// for a number nothing acts on.
+pub fn count_dl_ops<T>(ops: &[DlOp<T>]) -> (usize, usize) {
+    let mut insertions = 0;
+    let mut removals = 0;
+
+    for op in ops {
+        match op {
+            DlOp::Insert { .. } => insertions += 1,
+            DlOp::Remove { .. } => removals += 1,
+            DlOp::Open(..) | DlOp::Close(..) => {}
+        }
+    }
+
+    (insertions, removals)
+}
+
 /// Two-level store fed by the content interner's delta: an outer array indexed
 /// by namespace, an inner array indexed by content slot.
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[cfg_attr(
+    any(feature = "capture", feature = "replay"),
+    serde(bound(serialize = "T: serde::Serialize", deserialize = "T: serde::Deserialize<'de>"))
+)]
 pub struct DlStore<K, T> {
     /// `None` is a namespace that was never opened or has been closed. Closing
     /// drops a pipeline's entire slot array at once, which is what handles
@@ -393,12 +559,28 @@ pub struct DlStore<K, T> {
     _marker: PhantomData<K>,
 }
 
-#[derive(MallocSizeOf)]
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(MallocSizeOf, Clone)]
 struct Entry<T> {
     /// See `DlStore::uid`. Assigned when the entry is inserted and fixed for as
     /// long as it lives.
     uid: ItemUid,
     value: T,
+}
+
+// Hand-written rather than derived, which would demand `K: Clone` for the
+// marker.
+impl<K, T: Clone> Clone for DlStore<K, T> {
+    fn clone(&self) -> Self {
+        DlStore {
+            namespaces: self.namespaces.clone(),
+            #[cfg(debug_assertions)]
+            generations: self.generations.clone(),
+            next_uid: self.next_uid,
+            _marker: PhantomData,
+        }
+    }
 }
 
 impl<K, T> Default for DlStore<K, T> {
@@ -474,6 +656,43 @@ impl<K, T> DlStore<K, T> {
             .filter(|slots| slots.is_some())
             .unwrap_or_else(|| panic!("namespace {} is not open", namespace.0));
         *slots = None;
+    }
+
+    /// Bring the set of open namespaces into line with a builder map restored
+    /// from the same capture. The two are snapshotted by different threads at
+    /// different moments, so the store can lag the map by the display lists
+    /// that were in flight: namespaces the map has and the store lacks are
+    /// opened empty, ones only the store has are closed, and the generations
+    /// are taken from the map. Entries cannot be recovered the same way, since
+    /// their keys live in the content process.
+    pub fn reconcile(&mut self, builders: &DlBuilderMap) {
+        let live: Vec<(DlNamespace, u32)> = builders.live_namespaces().collect();
+
+        for (index, slots) in self.namespaces.iter_mut().enumerate() {
+            if slots.is_some() && !live.iter().any(|(ns, _)| ns.0 as usize == index) {
+                *slots = None;
+            }
+        }
+
+        for (namespace, generation) in live {
+            let index = namespace.0 as usize;
+            if index >= self.namespaces.len() {
+                self.namespaces.resize_with(index + 1, || None);
+            }
+            if self.namespaces[index].is_none() {
+                self.namespaces[index] = Some(Vec::new());
+            }
+
+            #[cfg(debug_assertions)]
+            {
+                if index >= self.generations.len() {
+                    self.generations.resize(index + 1, 0);
+                }
+                self.generations[index] = generation;
+            }
+            #[cfg(not(debug_assertions))]
+            let _ = generation;
+        }
     }
 
     pub fn insert(&mut self, namespace: DlNamespace, slot: u32, value: T) {
@@ -591,6 +810,10 @@ mod tests {
         PipelineId(1, id)
     }
 
+    fn doc(id: u32) -> DocumentId {
+        DocumentId::new(IdNamespace(1), id)
+    }
+
     fn store() -> DlStore<Key, u32> {
         DlStore::default()
     }
@@ -628,12 +851,44 @@ mod tests {
     }
 
     #[test]
+    fn reconcile_matches_open_namespaces_to_the_builder_map() {
+        // The store snapshot lags the map by one pipeline's arrival and one
+        // pipeline's release.
+        let mut alloc = DlBuilderMap::default();
+        let stale = alloc.get_or_alloc(doc(1), pipeline(1)).0;
+        let kept = alloc.get_or_alloc(doc(1), pipeline(2)).0;
+
+        let mut store = store();
+        store.open(stale);
+        store.open(kept);
+        store.insert(kept, 0, 100);
+        let handle = h(&store, kept, 0);
+
+        alloc.remove_pipeline(doc(1), pipeline(1));
+        alloc.take_removals(doc(1));
+        let fresh = alloc.get_or_alloc(doc(1), pipeline(3)).0;
+        assert_eq!(fresh, stale, "expected the released namespace to be reused");
+        let late = alloc.get_or_alloc(doc(1), pipeline(4)).0;
+
+        store.reconcile(&alloc);
+
+        assert_eq!(store.get(handle), Some(&100), "a surviving entry was lost");
+        assert_eq!(store.len(), 1);
+        store.insert(late, 0, 200);
+        store.insert(fresh, 0, 300);
+        store.close(late);
+        store.close(fresh);
+        store.close(kept);
+        assert_eq!(store.len(), 0);
+    }
+
+    #[test]
     fn a_pipeline_keeps_its_namespace_across_display_lists() {
         let mut alloc = DlBuilderMap::default();
 
-        let (first, allocated) = alloc.get_or_alloc(pipeline(1));
+        let (first, allocated) = alloc.get_or_alloc(doc(1), pipeline(1));
         assert!(allocated);
-        let (second, allocated) = alloc.get_or_alloc(pipeline(1));
+        let (second, allocated) = alloc.get_or_alloc(doc(1), pipeline(1));
         assert!(!allocated, "the second display list reallocated the namespace");
         assert_eq!(first, second);
     }
@@ -642,16 +897,16 @@ mod tests {
     fn namespaces_are_dense_and_recycled() {
         let mut alloc = DlBuilderMap::default();
 
-        let a = alloc.get_or_alloc(pipeline(1)).0;
-        let b = alloc.get_or_alloc(pipeline(2)).0;
+        let a = alloc.get_or_alloc(doc(1), pipeline(1)).0;
+        let b = alloc.get_or_alloc(doc(1), pipeline(2)).0;
         assert_ne!(a, b);
         assert!(a.0 < 2 && b.0 < 2, "namespaces are not dense: {:?} {:?}", a, b);
 
-        alloc.remove_pipeline(pipeline(1));
-        assert_eq!(alloc.take_removals(), vec![a]);
-        assert!(alloc.take_removals().is_empty(), "released twice");
+        alloc.remove_pipeline(doc(1), pipeline(1));
+        assert_eq!(alloc.take_removals(doc(1)), vec![a]);
+        assert!(alloc.take_removals(doc(1)).is_empty(), "released twice");
 
-        let c = alloc.get_or_alloc(pipeline(3)).0;
+        let c = alloc.get_or_alloc(doc(1), pipeline(3)).0;
         assert_eq!(c, a, "the released namespace was not reused");
     }
 
@@ -659,17 +914,17 @@ mod tests {
     fn a_removed_pipeline_holds_its_namespace_until_a_scene_is_built() {
         let mut alloc = DlBuilderMap::default();
 
-        let a = alloc.get_or_alloc(pipeline(1)).0;
-        alloc.remove_pipeline(pipeline(1));
+        let a = alloc.get_or_alloc(doc(1), pipeline(1)).0;
+        alloc.remove_pipeline(doc(1), pipeline(1));
 
         // Removing a pipeline does not rebuild the scene, so until one is built
         // the render backend is still drawing primitives that point into `a`.
         // Handing it to another pipeline now would alias them.
-        let b = alloc.get_or_alloc(pipeline(2)).0;
+        let b = alloc.get_or_alloc(doc(1), pipeline(2)).0;
         assert_ne!(b, a, "a namespace was reused while a live scene referenced it");
 
-        assert_eq!(alloc.take_removals(), vec![a]);
-        let c = alloc.get_or_alloc(pipeline(3)).0;
+        assert_eq!(alloc.take_removals(doc(1)), vec![a]);
+        let c = alloc.get_or_alloc(doc(1), pipeline(3)).0;
         assert_eq!(c, a, "the released namespace was not reused");
     }
 
@@ -677,17 +932,78 @@ mod tests {
     fn a_pipeline_that_comes_back_keeps_its_namespace() {
         let mut alloc = DlBuilderMap::default();
 
-        let a = alloc.get_or_alloc(pipeline(1)).0;
-        alloc.remove_pipeline(pipeline(1));
+        let a = alloc.get_or_alloc(doc(1), pipeline(1)).0;
+        alloc.remove_pipeline(doc(1), pipeline(1));
 
         // A new display list before the release lands means the pipeline is
         // live again on the same namespace, so the release is off - closing it
         // would drop entries the new list still references.
-        let (again, allocated) = alloc.get_or_alloc(pipeline(1));
+        let (again, allocated) = alloc.get_or_alloc(doc(1), pipeline(1));
         assert_eq!(again, a);
         assert!(!allocated, "the namespace was reallocated rather than kept");
 
-        assert!(alloc.take_removals().is_empty(), "a live pipeline was released");
+        assert!(alloc.take_removals(doc(1)).is_empty(), "a live pipeline was released");
+    }
+
+    #[test]
+    fn only_the_removing_document_releases_a_pipeline() {
+        let mut alloc = DlBuilderMap::default();
+
+        let a = alloc.get_or_alloc(doc(1), pipeline(1)).0;
+        alloc.remove_pipeline(doc(1), pipeline(1));
+
+        // Another document's scene says nothing about what doc(1) still draws,
+        // and the render backend may still be holding doc(1)'s open of `a`.
+        assert!(alloc.take_removals(doc(2)).is_empty(), "released by another document");
+        assert_eq!(alloc.take_removals(doc(1)), vec![a]);
+    }
+
+    #[test]
+    fn a_deleted_documents_removals_are_released_by_any_document() {
+        let mut alloc = DlBuilderMap::default();
+
+        let a = alloc.get_or_alloc(doc(1), pipeline(1)).0;
+        let b = alloc.get_or_alloc(doc(1), pipeline(2)).0;
+        alloc.remove_pipeline(doc(1), pipeline(1));
+        alloc.remove_document(doc(1));
+
+        let mut released = alloc.take_removals(doc(2));
+        released.sort_by_key(|namespace| namespace.0);
+        assert_eq!(released, vec![a, b]);
+    }
+
+    #[test]
+    fn a_pipeline_moved_to_another_document_gets_its_own_namespace() {
+        let mut alloc = DlBuilderMap::default();
+
+        let old = alloc.get_or_alloc(doc(1), pipeline(1)).0;
+
+        // A tab moved to another window: its display lists go to doc(2) while
+        // doc(1)'s removal, sent at low priority, arrives after them. The
+        // render backend may be holding doc(2)'s open, so doc(1)'s release
+        // must not touch the namespace doc(2) uses.
+        let (new, allocated) = alloc.get_or_alloc(doc(2), pipeline(1));
+        assert!(allocated);
+        assert_ne!(new, old, "two documents share a namespace");
+
+        alloc.remove_pipeline(doc(1), pipeline(1));
+        assert_eq!(alloc.take_removals(doc(1)), vec![old]);
+        assert_eq!(alloc.document(doc(2)).expect(pipeline(1)).0, new);
+        assert!(alloc.take_removals(doc(2)).is_empty(), "the moved pipeline was released");
+    }
+
+    #[test]
+    fn a_deleted_document_releases_pipelines_outside_its_scene() {
+        let mut alloc = DlBuilderMap::default();
+
+        // A display list that never made it into a scene, such as one for a
+        // document without a root pipeline yet.
+        let a = alloc.get_or_alloc(doc(1), pipeline(1)).0;
+        let b = alloc.get_or_alloc(doc(2), pipeline(1)).0;
+        alloc.remove_document(doc(1));
+
+        assert_eq!(alloc.take_removals(doc(3)), vec![a]);
+        assert_eq!(alloc.document(doc(2)).expect(pipeline(1)).0, b);
     }
 
     fn builder(id: u64) -> BuilderId {
@@ -697,8 +1013,8 @@ mod tests {
     /// A map with one pipeline whose stream has reached the given build.
     fn tracking(build: u32) -> DlBuilderMap {
         let mut map = DlBuilderMap::default();
-        map.get_or_alloc(pipeline(1));
-        assert_eq!(map.check_delta(pipeline(1), builder(7), BuildId(build), false), DeltaAction::Apply);
+        map.get_or_alloc(doc(1), pipeline(1));
+        assert_eq!(map.check_delta(doc(1), pipeline(1), builder(7), BuildId(build), false), DeltaAction::Apply);
         map
     }
 
@@ -708,10 +1024,10 @@ mod tests {
 
         // Including builds that interned nothing: those still advance the
         // builder's counter, so they must advance ours.
-        assert_eq!(map.check_delta(pipeline(1), builder(7), BuildId(1), true), DeltaAction::Apply);
-        assert_eq!(map.check_delta(pipeline(1), builder(7), BuildId(2), false), DeltaAction::Apply);
-        assert_eq!(map.check_delta(pipeline(1), builder(7), BuildId(3), true), DeltaAction::Apply);
-        assert_eq!(map.check_delta(pipeline(1), builder(7), BuildId(4), false), DeltaAction::Apply);
+        assert_eq!(map.check_delta(doc(1), pipeline(1), builder(7), BuildId(1), true), DeltaAction::Apply);
+        assert_eq!(map.check_delta(doc(1), pipeline(1), builder(7), BuildId(2), false), DeltaAction::Apply);
+        assert_eq!(map.check_delta(doc(1), pipeline(1), builder(7), BuildId(3), true), DeltaAction::Apply);
+        assert_eq!(map.check_delta(doc(1), pipeline(1), builder(7), BuildId(4), false), DeltaAction::Apply);
     }
 
     #[test]
@@ -719,22 +1035,22 @@ mod tests {
         // Only a delta that interns something claims the stream, so the first
         // one we track need not be build zero.
         let mut map = tracking(9);
-        assert_eq!(map.check_delta(pipeline(1), builder(7), BuildId(10), false), DeltaAction::Apply);
+        assert_eq!(map.check_delta(doc(1), pipeline(1), builder(7), BuildId(10), false), DeltaAction::Apply);
     }
 
     #[test]
     #[should_panic(expected = "out of sequence")]
     fn a_dropped_delta_panics() {
         let mut map = tracking(0);
-        map.check_delta(pipeline(1), builder(7), BuildId(2), false);
+        map.check_delta(doc(1), pipeline(1), builder(7), BuildId(2), false);
     }
 
     #[test]
     #[should_panic(expected = "out of sequence")]
     fn a_repeated_delta_panics() {
         let mut map = tracking(0);
-        map.check_delta(pipeline(1), builder(7), BuildId(1), false);
-        map.check_delta(pipeline(1), builder(7), BuildId(1), false);
+        map.check_delta(doc(1), pipeline(1), builder(7), BuildId(1), false);
+        map.check_delta(doc(1), pipeline(1), builder(7), BuildId(1), false);
     }
 
     #[test]
@@ -745,11 +1061,11 @@ mod tests {
         // replaced content process. The new builder's slot numbering starts
         // again, so the old entries have to be dropped rather than merged.
         assert_eq!(
-            map.check_delta(pipeline(1), builder(8), BuildId(0), false),
+            map.check_delta(doc(1), pipeline(1), builder(8), BuildId(0), false),
             DeltaAction::Reset,
         );
         assert_eq!(
-            map.check_delta(pipeline(1), builder(8), BuildId(1), false),
+            map.check_delta(doc(1), pipeline(1), builder(8), BuildId(1), false),
             DeltaAction::Apply,
         );
     }
@@ -762,8 +1078,8 @@ mod tests {
         // Taking over is only sound because the displaced builder is gone. One
         // that comes back would reference entries the takeover dropped and never
         // re-mint them, so the store lookup would fail far from here.
-        map.check_delta(pipeline(1), builder(8), BuildId(0), false);
-        map.check_delta(pipeline(1), builder(7), BuildId(1), false);
+        map.check_delta(doc(1), pipeline(1), builder(8), BuildId(0), false);
+        map.check_delta(doc(1), pipeline(1), builder(7), BuildId(1), false);
     }
 
     #[test]
@@ -773,23 +1089,23 @@ mod tests {
         // Gecko's clear-display-list paths: a throwaway builder, an empty list,
         // and so an empty delta. It must not disturb the real stream.
         assert_eq!(
-            map.check_delta(pipeline(1), builder(8), BuildId(0), true),
+            map.check_delta(doc(1), pipeline(1), builder(8), BuildId(0), true),
             DeltaAction::Ignore,
         );
-        assert_eq!(map.check_delta(pipeline(1), builder(7), BuildId(1), false), DeltaAction::Apply);
+        assert_eq!(map.check_delta(doc(1), pipeline(1), builder(7), BuildId(1), false), DeltaAction::Apply);
     }
 
     #[test]
     fn streams_are_tracked_per_pipeline() {
         let mut map = DlBuilderMap::default();
-        map.get_or_alloc(pipeline(1));
-        map.get_or_alloc(pipeline(2));
+        map.get_or_alloc(doc(1), pipeline(1));
+        map.get_or_alloc(doc(1), pipeline(2));
 
         // Two builders at different points in their own streams.
-        assert_eq!(map.check_delta(pipeline(1), builder(7), BuildId(4), false), DeltaAction::Apply);
-        assert_eq!(map.check_delta(pipeline(2), builder(8), BuildId(0), false), DeltaAction::Apply);
-        assert_eq!(map.check_delta(pipeline(1), builder(7), BuildId(5), false), DeltaAction::Apply);
-        assert_eq!(map.check_delta(pipeline(2), builder(8), BuildId(1), false), DeltaAction::Apply);
+        assert_eq!(map.check_delta(doc(1), pipeline(1), builder(7), BuildId(4), false), DeltaAction::Apply);
+        assert_eq!(map.check_delta(doc(1), pipeline(2), builder(8), BuildId(0), false), DeltaAction::Apply);
+        assert_eq!(map.check_delta(doc(1), pipeline(1), builder(7), BuildId(5), false), DeltaAction::Apply);
+        assert_eq!(map.check_delta(doc(1), pipeline(2), builder(8), BuildId(1), false), DeltaAction::Apply);
     }
 
     #[test]
@@ -851,18 +1167,18 @@ mod tests {
         let mut map = DlBuilderMap::default();
         let mut store = store();
 
-        let (ns_a, allocated) = map.get_or_alloc(pipeline(1));
+        let (ns_a, allocated) = map.get_or_alloc(doc(1), pipeline(1));
         assert!(allocated);
         store.open(ns_a);
         store.insert(ns_a, 0, 100);
 
         // Removed, then released at the next scene build.
-        map.remove_pipeline(pipeline(1));
-        for namespace in map.take_removals() {
+        map.remove_pipeline(doc(1), pipeline(1));
+        for namespace in map.take_removals(doc(1)) {
             store.close(namespace);
         }
 
-        let (ns_b, allocated) = map.get_or_alloc(pipeline(2));
+        let (ns_b, allocated) = map.get_or_alloc(doc(1), pipeline(2));
         assert_eq!(ns_b, ns_a, "the index was not recycled");
         assert!(allocated, "a recycled namespace must still be opened");
         store.open(ns_b);
@@ -877,7 +1193,7 @@ mod tests {
 
         // Same index, same slot, but the second pipeline's data - the first
         // pipeline's entry went with the close.
-        let (_, generation) = map.expect(pipeline(2));
+        let (_, generation) = map.document(doc(1)).expect(pipeline(2));
         assert_eq!(store[DlHandle::new(namespace, generation, 0)], 200);
     }
 
@@ -887,17 +1203,17 @@ mod tests {
         let mut map = DlBuilderMap::default();
         let mut store = store();
 
-        let (ns_a, _) = map.get_or_alloc(pipeline(1));
-        let stale = DlHandle::new(ns_a, map.expect(pipeline(1)).1, 0);
+        let (ns_a, _) = map.get_or_alloc(doc(1), pipeline(1));
+        let stale = DlHandle::new(ns_a, map.document(doc(1)).expect(pipeline(1)).1, 0);
         store.open(ns_a);
         store.insert(ns_a, 0, 100);
 
-        map.remove_pipeline(pipeline(1));
-        for namespace in map.take_removals() {
+        map.remove_pipeline(doc(1), pipeline(1));
+        for namespace in map.take_removals(doc(1)) {
             store.close(namespace);
         }
 
-        let (ns_b, _) = map.get_or_alloc(pipeline(2));
+        let (ns_b, _) = map.get_or_alloc(doc(1), pipeline(2));
         store.open(ns_b);
         store.insert(ns_b, 0, 200);
 

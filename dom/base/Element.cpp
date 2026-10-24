@@ -13,6 +13,7 @@
 #include <inttypes.h>
 
 #include <cstddef>
+#include <memory>
 #include <utility>
 
 #include "DOMMatrix.h"
@@ -64,6 +65,7 @@
 #include "mozilla/StaticAnalysisFunctions.h"
 #include "mozilla/StaticPrefs_dom.h"
 #include "mozilla/StaticPrefs_full_screen_api.h"
+#include "mozilla/StaticPrefs_mathml.h"
 #include "mozilla/StaticString.h"
 #include "mozilla/TextControlElement.h"
 #include "mozilla/TextEditor.h"
@@ -171,7 +173,6 @@
 #include "nsIDOMXULMenuListElement.h"
 #include "nsIDOMXULMultSelectCntrlEl.h"
 #include "nsIDOMXULRadioGroupElement.h"
-#include "nsIDOMXULRelatedElement.h"
 #include "nsIDOMXULSelectCntrlEl.h"
 #include "nsIDOMXULSelectCntrlItemEl.h"
 #include "nsIDocShell.h"
@@ -761,7 +762,7 @@ void Element::RecompileScriptEventListeners() {
 
     nsAutoString value;
     attrInfo.mValue->ToString(value);
-    SetEventHandler(GetEventNameForAttr(attr), value, true);
+    SetEventHandler(GetEventNameForAttr(attr), value);
   }
 }
 
@@ -1306,6 +1307,14 @@ void Element::LazyLoadingElementUnbindFromTree(UnbindContext& aContext) {
   observer->Unobserve(*this);
 }
 
+void Element::RenderBlockingElementUnbindFromTree(UnbindContext& aContext) {
+  if (!StaticPrefs::dom_element_blocking_enabled() ||
+      !aContext.WasInComposedDoc() || aContext.IsMove()) {
+    return;
+  }
+  aContext.OwnerDoc().UnblockRendering(*this);
+}
+
 namespace {
 // <https://html.spec.whatwg.org/multipage/urls-and-fetching.html#fetch-priority-attributes>.
 static constexpr nsAttrValue::EnumTableEntry kFetchPriorityEnumTable[] = {
@@ -1342,7 +1351,9 @@ void Element::AddToIdTable(nsAtom* aId) {
   NS_ASSERTION(HasID(), "Node doesn't have an ID?");
   if (IsInShadowTree()) {
     ShadowRoot* containingShadow = GetContainingShadow();
-    containingShadow->AddToIdTable(this, aId);
+    if (nsContentUtils::IsInSameAnonymousTree(this, containingShadow)) {
+      containingShadow->AddToIdTable(this, aId);
+    }
   } else {
     Document* doc = GetUncomposedDoc();
     if (doc && !IsInNativeAnonymousSubtree()) {
@@ -1359,9 +1370,12 @@ void Element::RemoveFromIdTable() {
   nsAtom* id = DoGetID();
   if (IsInShadowTree()) {
     ShadowRoot* containingShadow = GetContainingShadow();
-    // Check for containingShadow because it may have
-    // been deleted during unlinking.
-    if (containingShadow) {
+    // Check for containingShadow because it may have been deleted during
+    // unlinking. We can't use the stricter IsInSameAnonymousTree because our
+    // ancestors may have already been unbound.
+    if (containingShadow &&
+        IsInNativeAnonymousSubtree() ==
+            containingShadow->IsInNativeAnonymousSubtree()) {
       containingShadow->RemoveFromIdTable(this, id);
     }
   } else {
@@ -1373,7 +1387,8 @@ void Element::RemoveFromIdTable() {
 }
 
 void Element::SetSlot(const nsAString& aName, ErrorResult& aError) {
-  aError = SetAttr(kNameSpaceID_None, nsGkAtoms::slot, aName, true);
+  aError = SetAttr(kNameSpaceID_None, nsGkAtoms::slot, aName, true,
+                   IsKnownNewAttr::No);
 }
 
 void Element::GetSlot(nsAString& aName) { GetAttr(nsGkAtoms::slot, aName); }
@@ -1805,7 +1820,7 @@ bool Element::ToggleAttribute(const nsAString& aName,
       return false;
     }
     aError = SetAttr(kNameSpaceID_None, nameAtom, u""_ns, aTriggeringPrincipal,
-                     true);
+                     true, IsKnownNewAttr::No);
     return true;
   }
   if (aForce.WasPassed() && aForce.Value()) {
@@ -2051,7 +2066,6 @@ void Element::SetAttributeDevtoolsNS(const nsAString& aNamespaceURI,
 void Element::RemoveAttributeNS(const nsAString& aNamespaceURI,
                                 const nsAString& aLocalName,
                                 ErrorResult& aError) {
-  RefPtr<nsAtom> name = NS_AtomizeMainThread(aLocalName);
   int32_t nsid = nsNameSpaceManager::GetInstance()->GetNameSpaceID(
       aNamespaceURI, nsContentUtils::IsChromeDoc(OwnerDoc()));
 
@@ -2062,6 +2076,7 @@ void Element::RemoveAttributeNS(const nsAString& aNamespaceURI,
     return;
   }
 
+  RefPtr<nsAtom> name = NS_AtomizeMainThread(aLocalName);
   aError = UnsetAttr(nsid, name, true);
 }
 
@@ -2493,7 +2508,8 @@ Element* Element::AddAttrAssociatedElementObserver(
   // TODO (bug 1997286): Observe explicitly set attr-element binding/unbinding.
 
   if (!observerData.mCallbackData) {
-    observerData.mCallbackData.reset(new AttrElementObserverCallbackData());
+    observerData.mCallbackData =
+        std::make_unique<AttrElementObserverCallbackData>();
     observerData.mCallbackData->mAttr = aAttr;
     observerData.mCallbackData->mElement = do_GetWeakReference(this);
 
@@ -2835,21 +2851,23 @@ bool Element::HasVisibleScrollbars() {
 // Propagates this element's bloom filter up the tree by OR-ing it with
 // all ancestor element bloom filters, stopping early if no new bits are added.
 void Element::PropagateBloomFilterToParents() {
-  Element* toUpdate = this;
   Element* parent = GetParentElement();
+  if (!parent) {
+    return;
+  }
+  uint64_t childBloom = mAttrs.GetSubtreeBloomFilter();
 
-  while (parent) {
-    uint64_t childBloom = toUpdate->mAttrs.GetSubtreeBloomFilter();
+  do {
     uint64_t parentBloom = parent->mAttrs.GetSubtreeBloomFilter();
 
     // Check if parent already contains all child bits
     if ((parentBloom & childBloom) == childBloom) {
       break;
     }
-    parent->mAttrs.SetSubtreeBloomFilter(parentBloom | childBloom);
-    toUpdate = parent;
-    parent = toUpdate->GetParentElement();
-  }
+    childBloom |= parentBloom;
+    parent->mAttrs.SetSubtreeBloomFilter(childBloom);
+    parent = parent->GetParentElement();
+  } while (parent);
 }
 
 // Hashes all class names in a class attribute value for the bloom filter.
@@ -3051,7 +3069,7 @@ nsresult Element::BindToTree(BindContext& aContext, nsINode& aParent) {
   // recursing into kids, so each can read it from us. Only document-tree
   // content contributes to container timing.
   if (aContext.OwnerDoc().MayHaveContainerTimingAttributes() &&
-      aContext.InUncomposedDoc()) {
+      aContext.InUncomposedDoc() && !IsInNativeAnonymousSubtree()) {
     UpdateContainerTimingRootFromParent(&aParent);
   }
 
@@ -3078,6 +3096,15 @@ nsresult Element::BindToTree(BindContext& aContext, nsINode& aParent) {
       AddToIdTable(DoGetID());
     }
     HandleShadowDOMRelatedInsertionSteps(hadParent);
+  }
+
+  // https://html.spec.whatwg.org/#dom-trees
+  // An inserted element that is not on the parser's stack of open elements can
+  // be the target of a rel=expect link.
+  if ((HasID() || HasName()) && !HasFlag(ELEMENT_ON_PARSER_STACK) &&
+      !aContext.IsMove() && aContext.InUncomposedDoc() &&
+      StaticPrefs::dom_element_blocking_enabled()) {
+    aContext.OwnerDoc().MaybeProcessInternalResourceLinksForElement(*this);
   }
 
   if (MayHaveStyle()) {
@@ -3484,6 +3511,10 @@ void Element::SetMappedDeclarationBlock(
 bool Element::FindAttributeDependence(const nsAtom* aAttribute,
                                       const MappedAttributeEntry* const aMaps[],
                                       uint32_t aMapCount) {
+  MOZ_ASSERT(aAttribute);
+  if (!aAttribute->IsStatic()) {
+    return false;
+  }
   for (uint32_t mapindex = 0; mapindex < aMapCount; ++mapindex) {
     for (const MappedAttributeEntry* map = aMaps[mapindex]; map->attribute;
          ++map) {
@@ -3625,8 +3656,7 @@ nsresult Element::LeaveLink(nsPresContext* aPresContext) {
   return nsDocShell::Cast(shell)->OnLeaveLink();
 }
 
-void Element::SetEventHandler(nsAtom* aEventName, const nsAString& aValue,
-                              bool aDefer) {
+void Element::SetEventHandler(nsAtom* aEventName, const nsAString& aValue) {
   Document* ownerDoc = OwnerDoc();
   if (ownerDoc->IsLoadedAsData()) {
     // Make this a no-op rather than throwing an error to avoid
@@ -3635,15 +3665,12 @@ void Element::SetEventHandler(nsAtom* aEventName, const nsAString& aValue,
   }
 
   MOZ_ASSERT(aEventName, "Must have event name!");
-  bool defer = true;
-  EventListenerManager* manager =
-      GetEventListenerManagerForAttr(aEventName, &defer);
+  EventListenerManager* manager = GetEventListenerManagerForAttr(aEventName);
   if (!manager) {
     return;
   }
 
-  defer = defer && aDefer;  // only defer if everyone agrees...
-  manager->SetEventHandler(aEventName, aValue, defer,
+  manager->SetEventHandler(aEventName, aValue,
                            !nsContentUtils::IsChromeDoc(ownerDoc), this);
 }
 
@@ -3687,9 +3714,12 @@ bool Element::MaybeCheckSameAttrVal(int32_t aNamespaceID, const nsAtom* aName,
   if (aNotify) {
     BorrowedAttrInfo info(GetAttrInfo(aNamespaceID, aName));
     if (info.mValue) {
-      // Check whether the old value is the same as the new one.  Note that we
-      // only need to actually _get_ the old value if the element is a custom
-      // element (because it may have an attribute changed callback).
+      bool valueMatches = aValue.EqualsAsStrings(*info.mValue);
+      if (valueMatches && aPrefix == info.mName->GetPrefix()) {
+        return true;
+      }
+      // Only custom elements need an old-value snapshot for attribute
+      // callbacks.
       if (GetCustomElementData()) {
         // Need to store the old value.
         //
@@ -3699,10 +3729,6 @@ bool Element::MaybeCheckSameAttrVal(int32_t aNamespaceID, const nsAtom* aName,
         // should serialize the attribute value now to keep a snapshot.
         aOldValue.SetToSerialized(*info.mValue);
         *aOldValueSet = true;
-      }
-      bool valueMatches = aValue.EqualsAsStrings(*info.mValue);
-      if (valueMatches && aPrefix == info.mName->GetPrefix()) {
-        return true;
       }
       modification = true;
     }
@@ -3763,7 +3789,8 @@ nsresult Element::SetAttr(int32_t aNamespaceID, nsAtom* aName, nsAtom* aPrefix,
       aNamespaceID, aName, aPrefix, valueForComparison, aSubjectPrincipal,
       aNotify,
       [&](nsAttrValue& attrValue) {
-        if (!ParseAttribute(aNamespaceID, aName, aValue, aSubjectPrincipal,
+        if (!aName->IsStatic() ||
+            !ParseAttribute(aNamespaceID, aName, aValue, aSubjectPrincipal,
                             attrValue)) {
           attrValue.SetTo(aValue);
         }
@@ -3775,11 +3802,19 @@ nsresult Element::SetAndSwapAttr(nsAtom* aLocalName, nsAttrValue& aValue,
                                  bool* aHadValue, IsKnownNewAttr aIsKnownNew) {
   MOZ_TRY(mAttrs.SetAndSwapAttr(aLocalName, aValue, aHadValue, aIsKnownNew));
 
+  if (*aHadValue && aLocalName != nsGkAtoms::_class) {
+    return NS_OK;
+  }
+  const uint64_t oldBloom = mAttrs.GetSubtreeBloomFilter();
   if (aLocalName == nsGkAtoms::_class) {
     UpdateSubtreeBloomFilterForClass(GetClasses());
   }
-  UpdateSubtreeBloomFilterForAttribute(aLocalName);
-  PropagateBloomFilterToParents();
+  if (!*aHadValue) {
+    UpdateSubtreeBloomFilterForAttribute(aLocalName);
+  }
+  if (oldBloom != mAttrs.GetSubtreeBloomFilter()) {
+    PropagateBloomFilterToParents();
+  }
 
   return NS_OK;
 }
@@ -3787,25 +3822,17 @@ nsresult Element::SetAndSwapAttr(nsAtom* aLocalName, nsAttrValue& aValue,
 nsresult Element::SetAndSwapAttr(mozilla::dom::NodeInfo* aName,
                                  nsAttrValue& aValue, bool* aHadValue,
                                  IsKnownNewAttr aIsKnownNew) {
-  MOZ_TRY(mAttrs.SetAndSwapAttr(aName, aValue, aHadValue, aIsKnownNew));
-
   // Only update bloom filter for null-namespace attributes, since the
   // querySelector bloom filter optimization only applies to those.
   if (aName->NamespaceEquals(kNameSpaceID_None)) {
-    nsAtom* localName = aName->NameAtom();
-    if (localName == nsGkAtoms::_class) {
-      UpdateSubtreeBloomFilterForClass(GetClasses());
-    }
-    UpdateSubtreeBloomFilterForAttribute(localName);
-    PropagateBloomFilterToParents();
+    return SetAndSwapAttr(aName->NameAtom(), aValue, aHadValue, aIsKnownNew);
   }
-
-  return NS_OK;
+  return mAttrs.SetAndSwapAttr(aName, aValue, aHadValue, aIsKnownNew);
 }
 
 nsresult Element::SetAttr(int32_t aNamespaceID, nsAtom* aName, nsAtom* aPrefix,
                           nsAtom* aValue, nsIPrincipal* aSubjectPrincipal,
-                          bool aNotify) {
+                          bool aNotify, IsKnownNewAttr aIsKnownNew) {
   // Keep this in sync with SetParsedAttr below and SetSingleClassFromParser
   // above.
   const nsDependentAtomString valueString(aValue);
@@ -3814,12 +3841,13 @@ nsresult Element::SetAttr(int32_t aNamespaceID, nsAtom* aName, nsAtom* aPrefix,
       aNamespaceID, aName, aPrefix, valueForComparison, aSubjectPrincipal,
       aNotify,
       [&](nsAttrValue& attrValue) {
-        if (!ParseAttribute(aNamespaceID, aName, valueString, aSubjectPrincipal,
+        if (!aName->IsStatic() ||
+            !ParseAttribute(aNamespaceID, aName, valueString, aSubjectPrincipal,
                             attrValue)) {
           attrValue.SetTo(aValue);
         }
       },
-      IsKnownNewAttr::No);
+      aIsKnownNew);
 }
 
 template <typename ParseFunc>
@@ -4011,12 +4039,12 @@ nsresult Element::SetNoNameSpaceAttrOnNewlyCreatedElement(
             const char16_t* strPtr = valueAtom->GetUTF16String();
             char16_t c = *strPtr;
             if (c >= u'0' && c <= u'9') {
-              nsString str;  // Deliberately not Auto
-              valueAtom->ToString(str);
               // See https://bugzilla.mozilla.org/show_bug.cgi?id=2043161 about
               // possibly introducing a `ParseAttribute` overload for taking
               // value as atom.
-              if (ParseAttribute(kNameSpaceID_None, namePtr, str, nullptr,
+              if (namePtr->IsStatic() &&
+                  ParseAttribute(kNameSpaceID_None, namePtr,
+                                 nsDependentAtomString(valueAtom), nullptr,
                                  value)) {
                 valueAtom = nullptr;
               } else if (namePtr == nsGkAtoms::selected &&
@@ -4051,7 +4079,8 @@ nsresult Element::SetNoNameSpaceAttrOnNewlyCreatedElement(
     }
     nsString str;          // Deliberately not Auto
     aValue.ToString(str);  // Deliberately not move
-    if (!ParseAttribute(kNameSpaceID_None, namePtr, str, nullptr, value)) {
+    if (!namePtr->IsStatic() ||
+        !ParseAttribute(kNameSpaceID_None, namePtr, str, nullptr, value)) {
       if (aValue.IsStringBuffer()) {
         MOZ_ASSERT(!(NS_IS_ATOM_ARRAY_ATTRIBUTE(namePtr) ||
                      NS_IS_ATOM_ARRAY_ATTRIBUTE_HTML(namePtr) ||
@@ -4119,8 +4148,9 @@ nsresult Element::SetAttrAndNotify(
 
   // Copy aParsedValue for later use since it will be lost when we call
   // SetAndSwapAttr below
+  const bool callAfterSetAttr = aCallAfterSetAttr && aName->IsStatic();
   nsAttrValue valueForAfterSetAttr;
-  if (aCallAfterSetAttr || GetCustomElementData()) {
+  if (callAfterSetAttr || GetCustomElementData()) {
     valueForAfterSetAttr.SetTo(aParsedValue);
   }
 
@@ -4199,7 +4229,7 @@ nsresult Element::SetAttrAndNotify(
     }
   }
 
-  if (aCallAfterSetAttr && aName->IsStatic()) {
+  if (callAfterSetAttr) {
     AfterSetAttr(aNamespaceID, aName, &valueForAfterSetAttr, oldValue,
                  aSubjectPrincipal, aNotify);
 
@@ -4231,6 +4261,7 @@ bool Element::ParseAttribute(int32_t aNamespaceID, nsAtom* aAttribute,
                              const nsAString& aValue,
                              nsIPrincipal* aMaybeScriptedPrincipal,
                              nsAttrValue& aResult) {
+  MOZ_ASSERT(aAttribute->IsStatic());
   if (aAttribute == nsGkAtoms::lang) {
     aResult.ParseAtom(aValue);
     return true;
@@ -4343,6 +4374,13 @@ void Element::PostIdMaybeChange(const nsAttrValue* aValue) {
   } else {
     ClearHasID();
   }
+
+  // https://html.spec.whatwg.org/#link-type-expect
+  // A changed id can change the target of a rel=expect link. Only an element in
+  // the document tree can be a target.
+  if (IsInUncomposedDoc() && StaticPrefs::dom_element_blocking_enabled()) {
+    OwnerDoc()->ProcessInternalResourceLinks();
+  }
 }
 
 void Element::OnAttrSetButNotChanged(int32_t aNamespaceID, nsAtom* aName,
@@ -4382,9 +4420,8 @@ void Element::OnAttrSetButNotChanged(int32_t aNamespaceID, nsAtom* aName,
   }
 }
 
-EventListenerManager* Element::GetEventListenerManagerForAttr(nsAtom* aAttrName,
-                                                              bool* aDefer) {
-  *aDefer = true;
+EventListenerManager* Element::GetEventListenerManagerForAttr(
+    nsAtom* aAttrName) {
   return GetOrCreateListenerManager();
 }
 
@@ -4981,9 +5018,28 @@ void Element::GetLinkTarget(nsAString& aTarget) {
 
 void Element::GetLinkTargetImpl(nsAString& aTarget) { aTarget.Truncate(); }
 
+uintptr_t Element::GetRandomSeed() const {
+  // Uses the element's address as the element identifier. If the element is
+  // part of a cloned static document (e.g. for print previews), uses the seed
+  // recorded during the clone instead, ensuring that the clone's random base
+  // value is consistent with the element it was cloned from.
+  if (HasProperties() && OwnerDoc()->IsStaticDocument()) {
+    if (void* seed = GetProperty(nsGkAtoms::staticclonecssrandomseed)) {
+      return reinterpret_cast<uintptr_t>(seed);
+    }
+  }
+  return reinterpret_cast<uintptr_t>(this);
+}
+
 /* Part of https://dom.spec.whatwg.org/#concept-cloning-steps-for-a-single-node
    step 2 (if node is an element). */
 nsresult Element::CopyInnerTo(Element* aDst) {
+  // If the element is being cloned into a static document, record the seed.
+  if (aDst->OwnerDoc()->IsStaticDocument()) {
+    aDst->SetProperty(nsGkAtoms::staticclonecssrandomseed,
+                      reinterpret_cast<void*>(GetRandomSeed()));
+  }
+
   MOZ_TRY(aDst->mAttrs.EnsureCapacityToClone(mAttrs));
 
   // SVG attribute parsing has a lot of side effects, and some of its attributes
@@ -5937,7 +5993,7 @@ void Element::ClearEditContext() {
 
 nsresult Element::SetBoolAttr(nsAtom* aAttr, bool aValue) {
   if (aValue) {
-    return SetAttr(kNameSpaceID_None, aAttr, u""_ns, true);
+    return SetAttr(kNameSpaceID_None, aAttr, u""_ns, true, IsKnownNewAttr::No);
   }
 
   return UnsetAttr(kNameSpaceID_None, aAttr, true);
@@ -6076,10 +6132,7 @@ Element* Element::GetPseudoElement(const PseudoStyleRequest& aRequest) const {
 }
 
 ReferrerPolicy Element::GetReferrerPolicyAsEnum() const {
-  if (IsHTMLElement() || IsSVGElement()) {
-    return ReferrerPolicyFromAttr(GetParsedAttr(nsGkAtoms::referrerpolicy));
-  }
-  return ReferrerPolicy::_empty;
+  return ReferrerPolicyFromAttr(GetParsedAttr(nsGkAtoms::referrerpolicy));
 }
 
 ReferrerPolicy Element::ReferrerPolicyFromAttr(
@@ -6328,12 +6381,6 @@ Element::AsXULMultiSelectControl() {
 
 already_AddRefed<nsIDOMXULRadioGroupElement> Element::AsXULRadioGroup() {
   nsCOMPtr<nsIDOMXULRadioGroupElement> value;
-  GetCustomInterface(getter_AddRefs(value));
-  return value.forget();
-}
-
-already_AddRefed<nsIDOMXULRelatedElement> Element::AsXULRelated() {
-  nsCOMPtr<nsIDOMXULRelatedElement> value;
   GetCustomInterface(getter_AddRefs(value));
   return value.forget();
 }
@@ -6804,9 +6851,14 @@ bool Element::BlockingContainsRender() const {
   if (!attrValue || !StaticPrefs::dom_element_blocking_enabled()) {
     return false;
   }
-  MOZ_ASSERT(attrValue->Type() == nsAttrValue::eAtomArray,
-             "Checking blocking attribute on element that doesn't parse it?");
   return attrValue->Contains(nsGkAtoms::render, eIgnoreCase);
+}
+
+void Element::UnblockRenderingIfNotPotentiallyRenderBlocking() {
+  if (StaticPrefs::dom_element_blocking_enabled() &&
+      !IsPotentiallyRenderBlocking()) {
+    OwnerDoc()->UnblockRendering(*this);
+  }
 }
 
 static bool IsOffsetParent(nsIFrame* aFrame) {

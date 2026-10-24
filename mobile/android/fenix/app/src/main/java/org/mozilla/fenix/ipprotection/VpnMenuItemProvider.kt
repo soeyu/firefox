@@ -15,17 +15,26 @@ import mozilla.components.compose.menu.data.MenuItem
 import mozilla.components.compose.menu.data.MenuItemActionButton
 import mozilla.components.compose.menu.data.MenuItemBadge
 import mozilla.components.compose.menu.data.MenuItemSummary
+import mozilla.components.compose.menu.data.MenuItemTitle
 import mozilla.components.compose.menu.data.StandardMenuItem
+import mozilla.components.compose.menu.store.MenuEvent
 import mozilla.components.compose.menu.ui.MenuItemIconRes
 import mozilla.components.compose.menu.ui.MenuItemState
+import mozilla.components.feature.ipprotection.store.IPProtectionAction
 import mozilla.components.feature.ipprotection.store.IPProtectionStore
 import mozilla.components.feature.ipprotection.store.state.IPProtectionState
+import mozilla.components.feature.ipprotection.store.state.IPProtectionStatus
+import mozilla.components.feature.ipprotection.store.state.ipProtectionStatus
 import mozilla.components.feature.ipprotection.store.state.isEligible
 import mozilla.components.ui.icons.R as iconsR
+import mozilla.telemetry.glean.private.NoExtras
+import org.mozilla.fenix.GleanMetrics.Vpn
+import org.mozilla.fenix.NavGraphDirections
 import org.mozilla.fenix.R
+import org.mozilla.fenix.components.accounts.FenixFxAEntryPoint
+import org.mozilla.fenix.components.menu.MenuHost
 import org.mozilla.fenix.components.menu.MenuItemProvider
 import org.mozilla.fenix.components.menu.store.IPProtectionMenuState
-import org.mozilla.fenix.components.menu.store.IPProtectionMenuStatus
 import org.mozilla.fenix.components.menu.store.MenuAction
 import org.mozilla.fenix.components.menu.toMenuState
 
@@ -35,11 +44,12 @@ import org.mozilla.fenix.components.menu.toMenuState
  * Shown only to users eligible for the feature, and kept in sync with the connection status so that the menu can stay
  * open while connecting.
  *
- * @param ipProtectionStore [IPProtectionStore] with information about the current VPN functionality.
+ * @param ipProtectionStore [IPProtectionStore] with information about the current VPN functionality, used also to
+ *   toggle it.
  * @param scope [CoroutineScope] used to keep the item up to date for as long as it can be shown.
  */
 class VpnMenuItemProvider(
-    ipProtectionStore: IPProtectionStore,
+    private val ipProtectionStore: IPProtectionStore,
     scope: CoroutineScope,
 ) : MenuItemProvider {
     override val itemFlow: StateFlow<MenuItem?> =
@@ -51,6 +61,52 @@ class VpnMenuItemProvider(
                 initialValue = ipProtectionStore.state.ipProtectionMenuItem(),
             )
 
+    override fun handles(event: MenuEvent) =
+        event == MenuAction.IPProtectionToggle || event == MenuAction.Navigate.IPProtectionSettings
+
+    /** The menu is deliberately left open while connecting, so that the user can see the status change. */
+    override fun onEvent(event: MenuEvent, menu: MenuHost) {
+        when (event) {
+            MenuAction.IPProtectionToggle -> toggle(menu)
+            MenuAction.Navigate.IPProtectionSettings -> {
+                Vpn.settingsPageTapped.record(Vpn.SettingsPageTappedExtra(entrypoint = "Menu"))
+                menu.navigate(settingsDirections())
+            }
+            else -> Unit
+        }
+    }
+
+    private fun toggle(menu: MenuHost) {
+        when (ipProtectionStore.state.ipProtectionStatus) {
+            IPProtectionStatus.Disabled -> {
+                Vpn.menuTurnedOn.record()
+                ipProtectionStore.dispatch(IPProtectionAction.Toggle)
+            }
+
+            IPProtectionStatus.Enabled -> {
+                Vpn.menuTurnedOff.record()
+                ipProtectionStore.dispatch(IPProtectionAction.Toggle)
+            }
+
+            IPProtectionStatus.AuthRequired -> {
+                Vpn.menuTryItTapped.record(NoExtras())
+                menu.navigate(settingsDirections())
+            }
+
+            IPProtectionStatus.AwaitingService -> menu.navigate(settingsDirections())
+
+            IPProtectionStatus.Activating,
+            IPProtectionStatus.DataLimitReached,
+            IPProtectionStatus.ConnectionError -> ipProtectionStore.dispatch(IPProtectionAction.Toggle)
+
+            IPProtectionStatus.Unavailable,
+            IPProtectionStatus.Uninitialized -> Unit
+        }
+    }
+
+    private fun settingsDirections() =
+        NavGraphDirections.actionGlobalIpProtectionFragment(entrypoint = FenixFxAEntryPoint.IPProtectionMainMenu)
+
     /** IP protection is only offered to the users that are eligible for it. */
     private fun IPProtectionState.ipProtectionMenuItem() =
         when (isEligible) {
@@ -61,12 +117,13 @@ class VpnMenuItemProvider(
 
 private fun IPProtectionMenuState.toMenuItem() =
     StandardMenuItem(
-        title = Text.Resource(R.string.ip_protection_toggle_label),
+        title = MenuItemTitle(Text.Resource(R.string.ip_protection_toggle_label)),
         icon = MenuItemIconRes(iconsR.drawable.mozac_ic_globe_24),
         // Only a toggle while it can actually be toggled - otherwise tapping it opens the VPN settings instead.
         role =
             when (status) {
-                IPProtectionMenuStatus.AuthRequired -> Role.Button
+                IPProtectionStatus.AuthRequired,
+                IPProtectionStatus.AwaitingService -> Role.Button
                 else -> Role.Switch
             },
         onClickEvent = MenuAction.IPProtectionToggle,
@@ -84,7 +141,7 @@ private fun IPProtectionMenuState.toMenuItem() =
 private val IPProtectionMenuState.dataLimitSummary: MenuItemSummary?
     get() =
         when {
-            status == IPProtectionMenuStatus.DataLimitReached && dataLimitGb > 0 ->
+            status == IPProtectionStatus.DataLimitReached && dataLimitGb > 0 ->
                 MenuItemSummary(
                     text = Text.Resource(R.string.ip_protection_menu_limit_reached, listOf(dataLimitGb)),
                     state = MenuItemState.WARNING,
@@ -92,24 +149,30 @@ private val IPProtectionMenuState.dataLimitSummary: MenuItemSummary?
             else -> null
         }
 
-private val IPProtectionMenuStatus.badgeTextRes: Int
+private val IPProtectionStatus.badgeTextRes: Int
     get() =
         when (this) {
-            IPProtectionMenuStatus.Disabled -> R.string.preferences_ip_protection_off
-            IPProtectionMenuStatus.Enabled -> R.string.preferences_ip_protection_on
-            IPProtectionMenuStatus.Activating -> R.string.ip_protection_menu_connecting
-            IPProtectionMenuStatus.DataLimitReached -> R.string.ip_protection_menu_paused
-            IPProtectionMenuStatus.ConnectionError -> R.string.ip_protection_menu_error
-            IPProtectionMenuStatus.AuthRequired -> R.string.ip_protection_menu_try_vpn_cta
+            IPProtectionStatus.Unavailable,
+            IPProtectionStatus.Uninitialized,
+            IPProtectionStatus.Disabled -> R.string.preferences_ip_protection_off
+            IPProtectionStatus.Enabled -> R.string.preferences_ip_protection_on
+            IPProtectionStatus.AwaitingService,
+            IPProtectionStatus.Activating -> R.string.ip_protection_menu_connecting
+            IPProtectionStatus.DataLimitReached -> R.string.ip_protection_menu_paused
+            IPProtectionStatus.ConnectionError -> R.string.ip_protection_menu_error
+            IPProtectionStatus.AuthRequired -> R.string.ip_protection_menu_try_vpn_cta
         }
 
-private val IPProtectionMenuStatus.badgeState: MenuItemState
+private val IPProtectionStatus.badgeState: MenuItemState
     get() =
         when (this) {
-            IPProtectionMenuStatus.Enabled,
-            IPProtectionMenuStatus.Activating -> MenuItemState.ACTIVE
-            IPProtectionMenuStatus.ConnectionError -> MenuItemState.WARNING
-            IPProtectionMenuStatus.DataLimitReached -> MenuItemState.DISABLED
-            IPProtectionMenuStatus.Disabled,
-            IPProtectionMenuStatus.AuthRequired -> MenuItemState.DEFAULT
+            IPProtectionStatus.Enabled,
+            IPProtectionStatus.AwaitingService,
+            IPProtectionStatus.Activating -> MenuItemState.ACTIVE
+            IPProtectionStatus.ConnectionError -> MenuItemState.WARNING
+            IPProtectionStatus.DataLimitReached -> MenuItemState.DISABLED
+            IPProtectionStatus.Unavailable,
+            IPProtectionStatus.Uninitialized,
+            IPProtectionStatus.Disabled,
+            IPProtectionStatus.AuthRequired -> MenuItemState.DEFAULT
         }

@@ -40,8 +40,9 @@ use neqo_http3::{
 };
 use neqo_transport::{
     stream_id::StreamType, streams::SendGroupId, CongestionControl, Connection,
-    ConnectionParameters, Error as TransportError, HyStartCssBaseline, Output, OutputBatch,
-    RandomConnectionIdGenerator, SlowStart, Stats as TransportStats, StreamId, Version,
+    ConnectionParameters, DatagramQueueOutcome, Error as TransportError, HyStartCssBaseline,
+    Output, OutputBatch, RandomConnectionIdGenerator, SlowStart, Stats as TransportStats,
+    StreamDataLimit, StreamId, Version,
 };
 use nserror::{
     nsresult, NS_BASE_STREAM_WOULD_BLOCK, NS_ERROR_CONNECTION_REFUSED,
@@ -50,7 +51,7 @@ use nserror::{
     NS_ERROR_NET_RESET, NS_ERROR_NET_TIMEOUT, NS_ERROR_NOT_AVAILABLE, NS_ERROR_NOT_CONNECTED,
     NS_ERROR_OUT_OF_MEMORY, NS_ERROR_SOCKET_ADDRESS_IN_USE, NS_ERROR_UNEXPECTED, NS_OK,
 };
-use nss_rs::{agent::CertificateCompressor, init, PRErrorCode};
+use nss_rs::{cert::CertificateCompressor, init, PRErrorCode};
 use nsstring::{nsACString, nsCString};
 use thin_vec::ThinVec;
 use uuid::Uuid;
@@ -167,6 +168,26 @@ extern "C" {
     pub fn moz_netaddr_get_network_order_ip(arg: *const NetAddr) -> u32;
     pub fn moz_netaddr_get_ipv6(arg: *const NetAddr) -> *const u8;
     pub fn moz_netaddr_get_network_order_port(arg: *const NetAddr) -> u16;
+}
+
+extern "C" {
+    fn moz_mock_network_udp_send_would_block(family: u16, addr: *const u8, port: u16) -> bool;
+}
+
+fn mock_udp_send_would_block(dest: SocketAddr) -> bool {
+    if !static_prefs::pref!("network.socket.attach_mock_network_layer") {
+        return false;
+    }
+    unsafe {
+        match dest.ip() {
+            IpAddr::V4(v4) => {
+                moz_mock_network_udp_send_would_block(AF_INET_U16, v4.octets().as_ptr(), dest.port())
+            }
+            IpAddr::V6(v6) => {
+                moz_mock_network_udp_send_would_block(AF_INET6_U16, v6.octets().as_ptr(), dest.port())
+            }
+        }
+    }
 }
 
 fn netaddr_to_socket_addr(arg: *const NetAddr) -> Result<SocketAddr, nsresult> {
@@ -490,7 +511,7 @@ impl NeqoHttp3Conn {
             .congestion_control(cc_algorithm)
             .slow_start(slow_start)
             .max_data(max_data)
-            .max_stream_data(StreamType::BiDi, false, max_stream_data)
+            .max_stream_data(StreamDataLimit::BiDiLocal, max_stream_data)
             .grease(static_prefs::pref!("security.tls.grease_http3_enable"))
             .sni_slicing(static_prefs::pref!("network.http.http3.sni-slicing"))
             .idle_timeout(Duration::from_secs(idle_timeout.into()))
@@ -1396,7 +1417,12 @@ pub extern "C" fn neqo_http3conn_process_output_and_send(
                     };
                 }
 
-                match conn.socket.as_mut().expect("non NSPR IO").send(&dg) {
+                let send_result = if mock_udp_send_would_block(dg.destination()) {
+                    Err(io::Error::from(io::ErrorKind::WouldBlock))
+                } else {
+                    conn.socket.as_mut().expect("non NSPR IO").send(&dg)
+                };
+                match send_result {
                     Ok(()) => {}
                     Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
                         conn.increment_would_block_tx();
@@ -1706,7 +1732,6 @@ const fn crypto_error_code(err: &nss_rs::Error) -> u64 {
         nss_rs::Error::Aead => 1,
         nss_rs::Error::CertificateLoading => 2,
         nss_rs::Error::CreateSslSocket => 3,
-        nss_rs::Error::Hkdf => 4,
         nss_rs::Error::Internal => 5,
         nss_rs::Error::IntegerOverflow => 6,
         nss_rs::Error::InvalidEpoch => 7,
@@ -2018,11 +2043,14 @@ impl WebTransportEventExternal {
         match event {
             WebTransportEvent::Negotiated(n) => Self::Negotiated(n),
             WebTransportEvent::NewSession {
-                stream_id, status, ..
+                stream_id, status, headers
             } => {
-                data.extend_from_slice(b"HTTP/3 ");
-                data.extend_from_slice(status.to_string().as_bytes());
-                data.extend_from_slice(b"\r\n\r\n");
+                if convert_h3_to_h1_headers(&headers, data) != NS_OK {
+                    data.clear();
+                    data.extend_from_slice(b"HTTP/3 ");
+                    data.extend_from_slice(status.to_string().as_bytes());
+                    data.extend_from_slice(b"\r\n\r\n");
+                }
                 Self::Session(stream_id.as_u64())
             }
             WebTransportEvent::SessionClosed {
@@ -2215,6 +2243,7 @@ pub extern "C" fn neqo_http3conn_event(
             Http3ClientEvent::DataWritable { stream_id } => Http3Event::DataWritable {
                 stream_id: stream_id.as_u64(),
             },
+            Http3ClientEvent::OutgoingDatagramSpaceAvailable => Http3Event::NoEvent,
             Http3ClientEvent::StopSending { stream_id, error } => Http3Event::StopSending {
                 stream_id: stream_id.as_u64(),
                 error,
@@ -2670,29 +2699,41 @@ pub extern "C" fn neqo_http3conn_webtransport_send_datagram(
     session_id: u64,
     data: &mut ThinVec<u8>,
     tracking_id: u64,
+    below_high_water_mark: &mut bool,
     send_group_id: u64,
     send_order: i64,
+    age_us: u64,
 ) -> nsresult {
     let id = if tracking_id == 0 {
         None
     } else {
         Some(tracking_id)
     };
-    // The local neqo2 vendor doesn't yet support per-datagram send group/order
-    // prioritization; accept the params from the C++ side but don't forward
-    // them until neqo grows the corresponding API.
-    let _ = (send_group_id, send_order);
+    // Gecko's TimeStamp and Instant need not share a clock, so the write time
+    // comes across as an age.
+    let now = Instant::now();
+    let written = now
+        .checked_sub(Duration::from_micros(age_us))
+        .unwrap_or(now);
     match conn.conn.webtransport_send_datagram(
         StreamId::from(session_id),
         data,
         id,
-        Instant::now(),
+        written,
+        SendGroupId::new(send_group_id),
+        send_order,
     ) {
-        Ok(_) => NS_OK,
+        Ok(outcome) => {
+            // A queue that had to evict to make room is full, so apply
+            // backpressure regardless of where the high water mark sits.
+            *below_high_water_mark = matches!(outcome, DatagramQueueOutcome::Ok);
+            NS_OK
+        }
         Err(Http3Error::Transport(TransportError::TooMuchData)) => NS_ERROR_NOT_AVAILABLE,
         Err(_) => NS_ERROR_UNEXPECTED,
     }
 }
+
 #[no_mangle]
 pub extern "C" fn neqo_http3conn_connect_udp_send_datagram(
     conn: &mut NeqoHttp3Conn,
@@ -2735,6 +2776,28 @@ pub extern "C" fn neqo_http3conn_webtransport_max_datagram_size(
             *result = size;
             NS_OK
         })
+}
+
+#[no_mangle]
+pub extern "C" fn neqo_http3conn_webtransport_set_datagram_max_buffered_datagrams(
+    conn: &mut NeqoHttp3Conn,
+    session_id: u64,
+    max_buffered_datagrams: u32,
+) -> nsresult {
+    // Needs neqo's webtransport_set_max_buffered_datagrams.
+    let _ = (conn, session_id, max_buffered_datagrams);
+    NS_OK
+}
+
+#[no_mangle]
+pub extern "C" fn neqo_http3conn_webtransport_set_datagram_max_age(
+    conn: &mut NeqoHttp3Conn,
+    session_id: u64,
+    max_age: f64,
+) -> nsresult {
+    // Needs neqo's webtransport_set_datagram_max_age.
+    let _ = (conn, session_id, max_age);
+    NS_OK
 }
 
 /// # Safety

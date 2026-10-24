@@ -395,23 +395,6 @@ For the sample commands found below, note that the capitalization used is import
 :::
 
 
-:::{list-table} **{ref}`test-macosx1470-64-shippable/opt <hardware-mac-mini-r8>`**
-:widths: 30 15 15 15 15
-:header-rows: 1
-
-* - **Test Name**
-  - mozilla-central
-  - autoland
-  - mozilla-release
-  - mozilla-beta
-* - **talos-motionmark-profiling**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
-:::
-
-
 :::{list-table} **{ref}`test-macosx1500-aarch64-shippable/opt <hardware-mac-mini-m4>`**
 :widths: 30 15 15 15 15
 :header-rows: 1
@@ -477,23 +460,6 @@ For the sample commands found below, note that the capitalization used is import
 * **Test Task**:
 
 :::{list-table} **{ref}`test-linux2404-64-shippable/opt <hardware-hpe-moonshot>`**
-:widths: 30 15 15 15 15
-:header-rows: 1
-
-* - **Test Name**
-  - mozilla-central
-  - autoland
-  - mozilla-release
-  - mozilla-beta
-* - **talos-motionmark-profiling**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
-:::
-
-
-:::{list-table} **{ref}`test-macosx1470-64-shippable/opt <hardware-mac-mini-r8>`**
 :widths: 30 15 15 15 15
 :header-rows: 1
 
@@ -602,11 +568,6 @@ For the sample commands found below, note that the capitalization used is import
   - ✅
   - ❌
   - ❌
-* - **talos-other-no-nv**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
 * - **talos-other-profiling**
   - ❌
   - ❌
@@ -634,46 +595,9 @@ For the sample commands found below, note that the capitalization used is import
   - ❌
   - ❌
   - ❌
-* - **talos-other-no-nv**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
 * - **talos-other-swr**
   - ❌
   - ❌
-  - ❌
-  - ❌
-:::
-
-
-:::{list-table} **{ref}`test-macosx1470-64-shippable/opt <hardware-mac-mini-r8>`**
-:widths: 30 15 15 15 15
-:header-rows: 1
-
-* - **Test Name**
-  - mozilla-central
-  - autoland
-  - mozilla-release
-  - mozilla-beta
-* - **talos-other**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-other-no-nv**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-other-profiling**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
-* - **talos-other-swr**
-  - ✅
-  - ✅
   - ❌
   - ❌
 :::
@@ -689,11 +613,6 @@ For the sample commands found below, note that the capitalization used is import
   - mozilla-release
   - mozilla-beta
 * - **talos-other**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-other-no-nv**
   - ✅
   - ✅
   - ❌
@@ -725,11 +644,6 @@ For the sample commands found below, note that the capitalization used is import
   - ✅
   - ❌
   - ❌
-* - **talos-other-no-nv**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
 * - **talos-other-profiling**
   - ❌
   - ❌
@@ -753,11 +667,6 @@ For the sample commands found below, note that the capitalization used is import
   - mozilla-release
   - mozilla-beta
 * - **talos-other**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
-* - **talos-other-no-nv**
   - ❌
   - ❌
   - ❌
@@ -846,11 +755,6 @@ For the sample commands found below, note that the capitalization used is import
   - ✅
   - ❌
   - ❌
-* - **talos-chrome-no-nv**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
 * - **talos-chrome-profiling**
   - ❌
   - ❌
@@ -878,46 +782,9 @@ For the sample commands found below, note that the capitalization used is import
   - ❌
   - ❌
   - ❌
-* - **talos-chrome-no-nv**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
 * - **talos-chrome-swr**
   - ❌
   - ❌
-  - ❌
-  - ❌
-:::
-
-
-:::{list-table} **{ref}`test-macosx1470-64-shippable/opt <hardware-mac-mini-r8>`**
-:widths: 30 15 15 15 15
-:header-rows: 1
-
-* - **Test Name**
-  - mozilla-central
-  - autoland
-  - mozilla-release
-  - mozilla-beta
-* - **talos-chrome**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-chrome-no-nv**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-chrome-profiling**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
-* - **talos-chrome-swr**
-  - ✅
-  - ✅
   - ❌
   - ❌
 :::
@@ -933,11 +800,6 @@ For the sample commands found below, note that the capitalization used is import
   - mozilla-release
   - mozilla-beta
 * - **talos-chrome**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-chrome-no-nv**
   - ✅
   - ✅
   - ❌
@@ -969,11 +831,6 @@ For the sample commands found below, note that the capitalization used is import
   - ✅
   - ❌
   - ❌
-* - **talos-chrome-no-nv**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
 * - **talos-chrome-profiling**
   - ❌
   - ❌
@@ -997,11 +854,6 @@ For the sample commands found below, note that the capitalization used is import
   - mozilla-release
   - mozilla-beta
 * - **talos-chrome**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
-* - **talos-chrome-no-nv**
   - ❌
   - ❌
   - ❌
@@ -1119,33 +971,6 @@ For the sample commands found below, note that the capitalization used is import
 * - **talos-bcv-swr**
   - ❌
   - ❌
-  - ❌
-  - ❌
-:::
-
-
-:::{list-table} **{ref}`test-macosx1470-64-shippable/opt <hardware-mac-mini-r8>`**
-:widths: 30 15 15 15 15
-:header-rows: 1
-
-* - **Test Name**
-  - mozilla-central
-  - autoland
-  - mozilla-release
-  - mozilla-beta
-* - **talos-bcv**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-bcv-profiling**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
-* - **talos-bcv-swr**
-  - ✅
-  - ✅
   - ❌
   - ❌
 :::
@@ -1325,33 +1150,6 @@ For the sample commands found below, note that the capitalization used is import
 :::
 
 
-:::{list-table} **{ref}`test-macosx1470-64-shippable/opt <hardware-mac-mini-r8>`**
-:widths: 30 15 15 15 15
-:header-rows: 1
-
-* - **Test Name**
-  - mozilla-central
-  - autoland
-  - mozilla-release
-  - mozilla-beta
-* - **talos-webgl**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-webgl-profiling**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
-* - **talos-webgl-swr**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-:::
-
-
 :::{list-table} **{ref}`test-macosx1500-aarch64-shippable/opt <hardware-mac-mini-m4>`**
 :widths: 30 15 15 15 15
 :header-rows: 1
@@ -1477,11 +1275,6 @@ For the sample commands found below, note that the capitalization used is import
   - ✅
   - ❌
   - ❌
-* - **talos-other-no-nv**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
 * - **talos-other-profiling**
   - ❌
   - ❌
@@ -1509,46 +1302,9 @@ For the sample commands found below, note that the capitalization used is import
   - ❌
   - ❌
   - ❌
-* - **talos-other-no-nv**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
 * - **talos-other-swr**
   - ❌
   - ❌
-  - ❌
-  - ❌
-:::
-
-
-:::{list-table} **{ref}`test-macosx1470-64-shippable/opt <hardware-mac-mini-r8>`**
-:widths: 30 15 15 15 15
-:header-rows: 1
-
-* - **Test Name**
-  - mozilla-central
-  - autoland
-  - mozilla-release
-  - mozilla-beta
-* - **talos-other**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-other-no-nv**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-other-profiling**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
-* - **talos-other-swr**
-  - ✅
-  - ✅
   - ❌
   - ❌
 :::
@@ -1564,11 +1320,6 @@ For the sample commands found below, note that the capitalization used is import
   - mozilla-release
   - mozilla-beta
 * - **talos-other**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-other-no-nv**
   - ✅
   - ✅
   - ❌
@@ -1600,11 +1351,6 @@ For the sample commands found below, note that the capitalization used is import
   - ✅
   - ❌
   - ❌
-* - **talos-other-no-nv**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
 * - **talos-other-profiling**
   - ❌
   - ❌
@@ -1628,11 +1374,6 @@ For the sample commands found below, note that the capitalization used is import
   - mozilla-release
   - mozilla-beta
 * - **talos-other**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
-* - **talos-other-no-nv**
   - ❌
   - ❌
   - ❌
@@ -1694,11 +1435,6 @@ For the sample commands found below, note that the capitalization used is import
   - ✅
   - ❌
   - ❌
-* - **talos-other-no-nv**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
 * - **talos-other-profiling**
   - ❌
   - ❌
@@ -1726,46 +1462,9 @@ For the sample commands found below, note that the capitalization used is import
   - ❌
   - ❌
   - ❌
-* - **talos-other-no-nv**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
 * - **talos-other-swr**
   - ❌
   - ❌
-  - ❌
-  - ❌
-:::
-
-
-:::{list-table} **{ref}`test-macosx1470-64-shippable/opt <hardware-mac-mini-r8>`**
-:widths: 30 15 15 15 15
-:header-rows: 1
-
-* - **Test Name**
-  - mozilla-central
-  - autoland
-  - mozilla-release
-  - mozilla-beta
-* - **talos-other**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-other-no-nv**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-other-profiling**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
-* - **talos-other-swr**
-  - ✅
-  - ✅
   - ❌
   - ❌
 :::
@@ -1781,11 +1480,6 @@ For the sample commands found below, note that the capitalization used is import
   - mozilla-release
   - mozilla-beta
 * - **talos-other**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-other-no-nv**
   - ✅
   - ✅
   - ❌
@@ -1817,11 +1511,6 @@ For the sample commands found below, note that the capitalization used is import
   - ✅
   - ❌
   - ❌
-* - **talos-other-no-nv**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
 * - **talos-other-profiling**
   - ❌
   - ❌
@@ -1845,11 +1534,6 @@ For the sample commands found below, note that the capitalization used is import
   - mozilla-release
   - mozilla-beta
 * - **talos-other**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
-* - **talos-other-no-nv**
   - ❌
   - ❌
   - ❌
@@ -1997,33 +1681,6 @@ For the sample commands found below, note that the capitalization used is import
 * - **talos-damp-webconsole**
   - ❌
   - ❌
-  - ❌
-  - ❌
-:::
-
-
-:::{list-table} **{ref}`test-macosx1470-64-shippable/opt <hardware-mac-mini-r8>`**
-:widths: 30 15 15 15 15
-:header-rows: 1
-
-* - **Test Name**
-  - mozilla-central
-  - autoland
-  - mozilla-release
-  - mozilla-beta
-* - **talos-damp-inspector**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-damp-other**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-damp-webconsole**
-  - ✅
-  - ✅
   - ❌
   - ❌
 :::
@@ -2197,33 +1854,6 @@ For the sample commands found below, note that the capitalization used is import
 * - **talos-g4-swr**
   - ❌
   - ❌
-  - ❌
-  - ❌
-:::
-
-
-:::{list-table} **{ref}`test-macosx1470-64-shippable/opt <hardware-mac-mini-r8>`**
-:widths: 30 15 15 15 15
-:header-rows: 1
-
-* - **Test Name**
-  - mozilla-central
-  - autoland
-  - mozilla-release
-  - mozilla-beta
-* - **talos-g4**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-g4-profiling**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
-* - **talos-g4-swr**
-  - ✅
-  - ✅
   - ❌
   - ❌
 :::
@@ -2421,28 +2051,6 @@ For the sample commands found below, note that the capitalization used is import
 :::
 
 
-:::{list-table} **{ref}`test-macosx1470-64-shippable/opt <hardware-mac-mini-r8>`**
-:widths: 30 15 15 15 15
-:header-rows: 1
-
-* - **Test Name**
-  - mozilla-central
-  - autoland
-  - mozilla-release
-  - mozilla-beta
-* - **talos-dromaeojs**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-dromaeojs-profiling**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
-:::
-
-
 :::{list-table} **{ref}`test-macosx1500-aarch64-shippable/opt <hardware-mac-mini-m4>`**
 :widths: 30 15 15 15 15
 :header-rows: 1
@@ -2599,23 +2207,6 @@ For the sample commands found below, note that the capitalization used is import
 :::
 
 
-:::{list-table} **{ref}`test-macosx1470-64-shippable/opt <hardware-mac-mini-r8>`**
-:widths: 30 15 15 15 15
-:header-rows: 1
-
-* - **Test Name**
-  - mozilla-central
-  - autoland
-  - mozilla-release
-  - mozilla-beta
-* - **talos-g3-profiling**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
-:::
-
-
 :::{list-table} **{ref}`test-macosx1500-aarch64-shippable/opt <hardware-mac-mini-m4>`**
 :widths: 30 15 15 15 15
 :header-rows: 1
@@ -2746,33 +2337,6 @@ For the sample commands found below, note that the capitalization used is import
 * - **talos-webgl-swr**
   - ❌
   - ❌
-  - ❌
-  - ❌
-:::
-
-
-:::{list-table} **{ref}`test-macosx1470-64-shippable/opt <hardware-mac-mini-r8>`**
-:widths: 30 15 15 15 15
-:header-rows: 1
-
-* - **Test Name**
-  - mozilla-central
-  - autoland
-  - mozilla-release
-  - mozilla-beta
-* - **talos-webgl**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-webgl-profiling**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
-* - **talos-webgl-swr**
-  - ✅
-  - ✅
   - ❌
   - ❌
 :::
@@ -2952,33 +2516,6 @@ For the sample commands found below, note that the capitalization used is import
 :::
 
 
-:::{list-table} **{ref}`test-macosx1470-64-shippable/opt <hardware-mac-mini-r8>`**
-:widths: 30 15 15 15 15
-:header-rows: 1
-
-* - **Test Name**
-  - mozilla-central
-  - autoland
-  - mozilla-release
-  - mozilla-beta
-* - **talos-webgl**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-webgl-profiling**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
-* - **talos-webgl-swr**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-:::
-
-
 :::{list-table} **{ref}`test-macosx1500-aarch64-shippable/opt <hardware-mac-mini-m4>`**
 :widths: 30 15 15 15 15
 :header-rows: 1
@@ -3151,28 +2688,6 @@ For the sample commands found below, note that the capitalization used is import
 :::
 
 
-:::{list-table} **{ref}`test-macosx1470-64-shippable/opt <hardware-mac-mini-r8>`**
-:widths: 30 15 15 15 15
-:header-rows: 1
-
-* - **Test Name**
-  - mozilla-central
-  - autoland
-  - mozilla-release
-  - mozilla-beta
-* - **talos-dromaeojs**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-dromaeojs-profiling**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
-:::
-
-
 :::{list-table} **{ref}`test-macosx1500-aarch64-shippable/opt <hardware-mac-mini-m4>`**
 :widths: 30 15 15 15 15
 :header-rows: 1
@@ -3276,23 +2791,6 @@ For the sample commands found below, note that the capitalization used is import
 :::
 
 
-:::{list-table} **{ref}`test-macosx1470-64-shippable/opt <hardware-mac-mini-r8>`**
-:widths: 30 15 15 15 15
-:header-rows: 1
-
-* - **Test Name**
-  - mozilla-central
-  - autoland
-  - mozilla-release
-  - mozilla-beta
-* - **talos-motionmark-profiling**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
-:::
-
-
 :::{list-table} **{ref}`test-macosx1500-aarch64-shippable/opt <hardware-mac-mini-m4>`**
 :widths: 30 15 15 15 15
 :header-rows: 1
@@ -3345,23 +2843,6 @@ For the sample commands found below, note that the capitalization used is import
 * **Test Task**:
 
 :::{list-table} **{ref}`test-linux2404-64-shippable/opt <hardware-hpe-moonshot>`**
-:widths: 30 15 15 15 15
-:header-rows: 1
-
-* - **Test Name**
-  - mozilla-central
-  - autoland
-  - mozilla-release
-  - mozilla-beta
-* - **talos-motionmark-profiling**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
-:::
-
-
-:::{list-table} **{ref}`test-macosx1470-64-shippable/opt <hardware-mac-mini-r8>`**
 :widths: 30 15 15 15 15
 :header-rows: 1
 
@@ -3482,33 +2963,6 @@ For the sample commands found below, note that the capitalization used is import
 * - **talos-webgl-swr**
   - ❌
   - ❌
-  - ❌
-  - ❌
-:::
-
-
-:::{list-table} **{ref}`test-macosx1470-64-shippable/opt <hardware-mac-mini-r8>`**
-:widths: 30 15 15 15 15
-:header-rows: 1
-
-* - **Test Name**
-  - mozilla-central
-  - autoland
-  - mozilla-release
-  - mozilla-beta
-* - **talos-webgl**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-webgl-profiling**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
-* - **talos-webgl-swr**
-  - ✅
-  - ✅
   - ❌
   - ❌
 :::
@@ -3683,33 +3137,6 @@ For the sample commands found below, note that the capitalization used is import
 * - **talos-webgl-swr**
   - ❌
   - ❌
-  - ❌
-  - ❌
-:::
-
-
-:::{list-table} **{ref}`test-macosx1470-64-shippable/opt <hardware-mac-mini-r8>`**
-:widths: 30 15 15 15 15
-:header-rows: 1
-
-* - **Test Name**
-  - mozilla-central
-  - autoland
-  - mozilla-release
-  - mozilla-beta
-* - **talos-webgl**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-webgl-profiling**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
-* - **talos-webgl-swr**
-  - ✅
-  - ✅
   - ❌
   - ❌
 :::
@@ -3936,33 +3363,6 @@ For the sample commands found below, note that the capitalization used is import
 :::
 
 
-:::{list-table} **{ref}`test-macosx1470-64-shippable/opt <hardware-mac-mini-r8>`**
-:widths: 30 15 15 15 15
-:header-rows: 1
-
-* - **Test Name**
-  - mozilla-central
-  - autoland
-  - mozilla-release
-  - mozilla-beta
-* - **talos-webgl**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-webgl-profiling**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
-* - **talos-webgl-swr**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-:::
-
-
 :::{list-table} **{ref}`test-macosx1500-aarch64-shippable/opt <hardware-mac-mini-m4>`**
 :widths: 30 15 15 15 15
 :header-rows: 1
@@ -4132,33 +3532,6 @@ For the sample commands found below, note that the capitalization used is import
 * - **talos-webgl-swr**
   - ❌
   - ❌
-  - ❌
-  - ❌
-:::
-
-
-:::{list-table} **{ref}`test-macosx1470-64-shippable/opt <hardware-mac-mini-r8>`**
-:widths: 30 15 15 15 15
-:header-rows: 1
-
-* - **Test Name**
-  - mozilla-central
-  - autoland
-  - mozilla-release
-  - mozilla-beta
-* - **talos-webgl**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-webgl-profiling**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
-* - **talos-webgl-swr**
-  - ✅
-  - ✅
   - ❌
   - ❌
 :::
@@ -4338,33 +3711,6 @@ For the sample commands found below, note that the capitalization used is import
 :::
 
 
-:::{list-table} **{ref}`test-macosx1470-64-shippable/opt <hardware-mac-mini-r8>`**
-:widths: 30 15 15 15 15
-:header-rows: 1
-
-* - **Test Name**
-  - mozilla-central
-  - autoland
-  - mozilla-release
-  - mozilla-beta
-* - **talos-webgl**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-webgl-profiling**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
-* - **talos-webgl-swr**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-:::
-
-
 :::{list-table} **{ref}`test-macosx1500-aarch64-shippable/opt <hardware-mac-mini-m4>`**
 :widths: 30 15 15 15 15
 :header-rows: 1
@@ -4539,33 +3885,6 @@ For the sample commands found below, note that the capitalization used is import
 :::
 
 
-:::{list-table} **{ref}`test-macosx1470-64-shippable/opt <hardware-mac-mini-r8>`**
-:widths: 30 15 15 15 15
-:header-rows: 1
-
-* - **Test Name**
-  - mozilla-central
-  - autoland
-  - mozilla-release
-  - mozilla-beta
-* - **talos-webgl**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-webgl-profiling**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
-* - **talos-webgl-swr**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-:::
-
-
 :::{list-table} **{ref}`test-macosx1500-aarch64-shippable/opt <hardware-mac-mini-m4>`**
 :widths: 30 15 15 15 15
 :header-rows: 1
@@ -4735,33 +4054,6 @@ For the sample commands found below, note that the capitalization used is import
 * - **talos-webgl-swr**
   - ❌
   - ❌
-  - ❌
-  - ❌
-:::
-
-
-:::{list-table} **{ref}`test-macosx1470-64-shippable/opt <hardware-mac-mini-r8>`**
-:widths: 30 15 15 15 15
-:header-rows: 1
-
-* - **Test Name**
-  - mozilla-central
-  - autoland
-  - mozilla-release
-  - mozilla-beta
-* - **talos-webgl**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-webgl-profiling**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
-* - **talos-webgl-swr**
-  - ✅
-  - ✅
   - ❌
   - ❌
 :::
@@ -4988,33 +4280,6 @@ For the sample commands found below, note that the capitalization used is import
 :::
 
 
-:::{list-table} **{ref}`test-macosx1470-64-shippable/opt <hardware-mac-mini-r8>`**
-:widths: 30 15 15 15 15
-:header-rows: 1
-
-* - **Test Name**
-  - mozilla-central
-  - autoland
-  - mozilla-release
-  - mozilla-beta
-* - **talos-webgl**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-webgl-profiling**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
-* - **talos-webgl-swr**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-:::
-
-
 :::{list-table} **{ref}`test-macosx1500-aarch64-shippable/opt <hardware-mac-mini-m4>`**
 :widths: 30 15 15 15 15
 :header-rows: 1
@@ -5184,33 +4449,6 @@ For the sample commands found below, note that the capitalization used is import
 * - **talos-webgl-swr**
   - ❌
   - ❌
-  - ❌
-  - ❌
-:::
-
-
-:::{list-table} **{ref}`test-macosx1470-64-shippable/opt <hardware-mac-mini-r8>`**
-:widths: 30 15 15 15 15
-:header-rows: 1
-
-* - **Test Name**
-  - mozilla-central
-  - autoland
-  - mozilla-release
-  - mozilla-beta
-* - **talos-webgl**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-webgl-profiling**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
-* - **talos-webgl-swr**
-  - ✅
-  - ✅
   - ❌
   - ❌
 :::
@@ -5390,33 +4628,6 @@ For the sample commands found below, note that the capitalization used is import
 :::
 
 
-:::{list-table} **{ref}`test-macosx1470-64-shippable/opt <hardware-mac-mini-r8>`**
-:widths: 30 15 15 15 15
-:header-rows: 1
-
-* - **Test Name**
-  - mozilla-central
-  - autoland
-  - mozilla-release
-  - mozilla-beta
-* - **talos-webgl**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-webgl-profiling**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
-* - **talos-webgl-swr**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-:::
-
-
 :::{list-table} **{ref}`test-macosx1500-aarch64-shippable/opt <hardware-mac-mini-m4>`**
 :widths: 30 15 15 15 15
 :header-rows: 1
@@ -5586,33 +4797,6 @@ For the sample commands found below, note that the capitalization used is import
 * - **talos-webgl-swr**
   - ❌
   - ❌
-  - ❌
-  - ❌
-:::
-
-
-:::{list-table} **{ref}`test-macosx1470-64-shippable/opt <hardware-mac-mini-r8>`**
-:widths: 30 15 15 15 15
-:header-rows: 1
-
-* - **Test Name**
-  - mozilla-central
-  - autoland
-  - mozilla-release
-  - mozilla-beta
-* - **talos-webgl**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-webgl-profiling**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
-* - **talos-webgl-swr**
-  - ✅
-  - ✅
   - ❌
   - ❌
 :::
@@ -5947,118 +5131,6 @@ For the sample commands found below, note that the capitalization used is import
 * - **talos-pdfpaint-9-swr**
   - ❌
   - ❌
-  - ❌
-  - ❌
-:::
-
-
-:::{list-table} **{ref}`test-macosx1470-64-shippable/opt <hardware-mac-mini-r8>`**
-:widths: 30 15 15 15 15
-:header-rows: 1
-
-* - **Test Name**
-  - mozilla-central
-  - autoland
-  - mozilla-release
-  - mozilla-beta
-* - **talos-pdfpaint-1**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-pdfpaint-1-swr**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-pdfpaint-10**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-pdfpaint-10-swr**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-pdfpaint-2**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-pdfpaint-2-swr**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-pdfpaint-3**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-pdfpaint-3-swr**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-pdfpaint-4**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-pdfpaint-4-swr**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-pdfpaint-5**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-pdfpaint-5-swr**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-pdfpaint-6**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-pdfpaint-6-swr**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-pdfpaint-7**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-pdfpaint-7-swr**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-pdfpaint-8**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-pdfpaint-8-swr**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-pdfpaint-9**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-pdfpaint-9-swr**
-  - ✅
-  - ✅
   - ❌
   - ❌
 :::
@@ -6524,33 +5596,6 @@ For the sample commands found below, note that the capitalization used is import
 :::
 
 
-:::{list-table} **{ref}`test-macosx1470-64-shippable/opt <hardware-mac-mini-r8>`**
-:widths: 30 15 15 15 15
-:header-rows: 1
-
-* - **Test Name**
-  - mozilla-central
-  - autoland
-  - mozilla-release
-  - mozilla-beta
-* - **talos-perf-reftest**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-perf-reftest-profiling**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
-* - **talos-perf-reftest-swr**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-:::
-
-
 :::{list-table} **{ref}`test-macosx1500-aarch64-shippable/opt <hardware-mac-mini-m4>`**
 :widths: 30 15 15 15 15
 :header-rows: 1
@@ -6717,28 +5762,6 @@ For the sample commands found below, note that the capitalization used is import
 :::
 
 
-:::{list-table} **{ref}`test-macosx1470-64-shippable/opt <hardware-mac-mini-r8>`**
-:widths: 30 15 15 15 15
-:header-rows: 1
-
-* - **Test Name**
-  - mozilla-central
-  - autoland
-  - mozilla-release
-  - mozilla-beta
-* - **talos-perf-reftest-singletons**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-perf-reftest-singletons-profiling**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
-:::
-
-
 :::{list-table} **{ref}`test-macosx1500-aarch64-shippable/opt <hardware-mac-mini-m4>`**
 :widths: 30 15 15 15 15
 :header-rows: 1
@@ -6893,33 +5916,6 @@ For the sample commands found below, note that the capitalization used is import
 * - **talos-g4-swr**
   - ❌
   - ❌
-  - ❌
-  - ❌
-:::
-
-
-:::{list-table} **{ref}`test-macosx1470-64-shippable/opt <hardware-mac-mini-r8>`**
-:widths: 30 15 15 15 15
-:header-rows: 1
-
-* - **Test Name**
-  - mozilla-central
-  - autoland
-  - mozilla-release
-  - mozilla-beta
-* - **talos-g4**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-g4-profiling**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
-* - **talos-g4-swr**
-  - ✅
-  - ✅
   - ❌
   - ❌
 :::
@@ -7097,33 +6093,6 @@ For the sample commands found below, note that the capitalization used is import
 :::
 
 
-:::{list-table} **{ref}`test-macosx1470-64-shippable/opt <hardware-mac-mini-r8>`**
-:widths: 30 15 15 15 15
-:header-rows: 1
-
-* - **Test Name**
-  - mozilla-central
-  - autoland
-  - mozilla-release
-  - mozilla-beta
-* - **talos-g4**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-g4-profiling**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
-* - **talos-g4-swr**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-:::
-
-
 :::{list-table} **{ref}`test-macosx1500-aarch64-shippable/opt <hardware-mac-mini-m4>`**
 :widths: 30 15 15 15 15
 :header-rows: 1
@@ -7272,11 +6241,6 @@ For the sample commands found below, note that the capitalization used is import
   - ✅
   - ❌
   - ❌
-* - **talos-other-no-nv**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
 * - **talos-other-profiling**
   - ❌
   - ❌
@@ -7304,46 +6268,9 @@ For the sample commands found below, note that the capitalization used is import
   - ❌
   - ❌
   - ❌
-* - **talos-other-no-nv**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
 * - **talos-other-swr**
   - ❌
   - ❌
-  - ❌
-  - ❌
-:::
-
-
-:::{list-table} **{ref}`test-macosx1470-64-shippable/opt <hardware-mac-mini-r8>`**
-:widths: 30 15 15 15 15
-:header-rows: 1
-
-* - **Test Name**
-  - mozilla-central
-  - autoland
-  - mozilla-release
-  - mozilla-beta
-* - **talos-other**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-other-no-nv**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-other-profiling**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
-* - **talos-other-swr**
-  - ✅
-  - ✅
   - ❌
   - ❌
 :::
@@ -7359,11 +6286,6 @@ For the sample commands found below, note that the capitalization used is import
   - mozilla-release
   - mozilla-beta
 * - **talos-other**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-other-no-nv**
   - ✅
   - ✅
   - ❌
@@ -7395,11 +6317,6 @@ For the sample commands found below, note that the capitalization used is import
   - ✅
   - ❌
   - ❌
-* - **talos-other-no-nv**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
 * - **talos-other-profiling**
   - ❌
   - ❌
@@ -7423,11 +6340,6 @@ For the sample commands found below, note that the capitalization used is import
   - mozilla-release
   - mozilla-beta
 * - **talos-other**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
-* - **talos-other-no-nv**
   - ❌
   - ❌
   - ❌
@@ -7471,11 +6383,6 @@ For the sample commands found below, note that the capitalization used is import
   - ✅
   - ❌
   - ❌
-* - **talos-sessionrestore-many-windows-no-nv**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
 * - **talos-sessionrestore-many-windows-profiling**
   - ❌
   - ❌
@@ -7503,46 +6410,9 @@ For the sample commands found below, note that the capitalization used is import
   - ❌
   - ❌
   - ❌
-* - **talos-sessionrestore-many-windows-no-nv**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
 * - **talos-sessionrestore-many-windows-swr**
   - ❌
   - ❌
-  - ❌
-  - ❌
-:::
-
-
-:::{list-table} **{ref}`test-macosx1470-64-shippable/opt <hardware-mac-mini-r8>`**
-:widths: 30 15 15 15 15
-:header-rows: 1
-
-* - **Test Name**
-  - mozilla-central
-  - autoland
-  - mozilla-release
-  - mozilla-beta
-* - **talos-sessionrestore-many-windows**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-sessionrestore-many-windows-no-nv**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-sessionrestore-many-windows-profiling**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
-* - **talos-sessionrestore-many-windows-swr**
-  - ✅
-  - ✅
   - ❌
   - ❌
 :::
@@ -7558,11 +6428,6 @@ For the sample commands found below, note that the capitalization used is import
   - mozilla-release
   - mozilla-beta
 * - **talos-sessionrestore-many-windows**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-sessionrestore-many-windows-no-nv**
   - ✅
   - ✅
   - ❌
@@ -7594,11 +6459,6 @@ For the sample commands found below, note that the capitalization used is import
   - ✅
   - ❌
   - ❌
-* - **talos-sessionrestore-many-windows-no-nv**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
 * - **talos-sessionrestore-many-windows-profiling**
   - ❌
   - ❌
@@ -7622,11 +6482,6 @@ For the sample commands found below, note that the capitalization used is import
   - mozilla-release
   - mozilla-beta
 * - **talos-sessionrestore-many-windows**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
-* - **talos-sessionrestore-many-windows-no-nv**
   - ❌
   - ❌
   - ❌
@@ -7671,11 +6526,6 @@ For the sample commands found below, note that the capitalization used is import
   - ✅
   - ❌
   - ❌
-* - **talos-other-no-nv**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
 * - **talos-other-profiling**
   - ❌
   - ❌
@@ -7703,46 +6553,9 @@ For the sample commands found below, note that the capitalization used is import
   - ❌
   - ❌
   - ❌
-* - **talos-other-no-nv**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
 * - **talos-other-swr**
   - ❌
   - ❌
-  - ❌
-  - ❌
-:::
-
-
-:::{list-table} **{ref}`test-macosx1470-64-shippable/opt <hardware-mac-mini-r8>`**
-:widths: 30 15 15 15 15
-:header-rows: 1
-
-* - **Test Name**
-  - mozilla-central
-  - autoland
-  - mozilla-release
-  - mozilla-beta
-* - **talos-other**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-other-no-nv**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-other-profiling**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
-* - **talos-other-swr**
-  - ✅
-  - ✅
   - ❌
   - ❌
 :::
@@ -7758,11 +6571,6 @@ For the sample commands found below, note that the capitalization used is import
   - mozilla-release
   - mozilla-beta
 * - **talos-other**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-other-no-nv**
   - ✅
   - ✅
   - ❌
@@ -7794,11 +6602,6 @@ For the sample commands found below, note that the capitalization used is import
   - ✅
   - ❌
   - ❌
-* - **talos-other-no-nv**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
 * - **talos-other-profiling**
   - ❌
   - ❌
@@ -7822,11 +6625,6 @@ For the sample commands found below, note that the capitalization used is import
   - mozilla-release
   - mozilla-beta
 * - **talos-other**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
-* - **talos-other-no-nv**
   - ❌
   - ❌
   - ❌
@@ -7887,11 +6685,6 @@ For the sample commands found below, note that the capitalization used is import
   - ✅
   - ❌
   - ❌
-* - **talos-other-no-nv**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
 * - **talos-other-profiling**
   - ❌
   - ❌
@@ -7919,46 +6712,9 @@ For the sample commands found below, note that the capitalization used is import
   - ❌
   - ❌
   - ❌
-* - **talos-other-no-nv**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
 * - **talos-other-swr**
   - ❌
   - ❌
-  - ❌
-  - ❌
-:::
-
-
-:::{list-table} **{ref}`test-macosx1470-64-shippable/opt <hardware-mac-mini-r8>`**
-:widths: 30 15 15 15 15
-:header-rows: 1
-
-* - **Test Name**
-  - mozilla-central
-  - autoland
-  - mozilla-release
-  - mozilla-beta
-* - **talos-other**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-other-no-nv**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-other-profiling**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
-* - **talos-other-swr**
-  - ✅
-  - ✅
   - ❌
   - ❌
 :::
@@ -7974,11 +6730,6 @@ For the sample commands found below, note that the capitalization used is import
   - mozilla-release
   - mozilla-beta
 * - **talos-other**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-other-no-nv**
   - ✅
   - ✅
   - ❌
@@ -8010,11 +6761,6 @@ For the sample commands found below, note that the capitalization used is import
   - ✅
   - ❌
   - ❌
-* - **talos-other-no-nv**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
 * - **talos-other-profiling**
   - ❌
   - ❌
@@ -8038,11 +6784,6 @@ For the sample commands found below, note that the capitalization used is import
   - mozilla-release
   - mozilla-beta
 * - **talos-other**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
-* - **talos-other-no-nv**
   - ❌
   - ❌
   - ❌
@@ -8094,11 +6835,6 @@ For the sample commands found below, note that the capitalization used is import
   - ✅
   - ❌
   - ❌
-* - **talos-other-no-nv**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
 * - **talos-other-profiling**
   - ❌
   - ❌
@@ -8126,46 +6862,9 @@ For the sample commands found below, note that the capitalization used is import
   - ❌
   - ❌
   - ❌
-* - **talos-other-no-nv**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
 * - **talos-other-swr**
   - ❌
   - ❌
-  - ❌
-  - ❌
-:::
-
-
-:::{list-table} **{ref}`test-macosx1470-64-shippable/opt <hardware-mac-mini-r8>`**
-:widths: 30 15 15 15 15
-:header-rows: 1
-
-* - **Test Name**
-  - mozilla-central
-  - autoland
-  - mozilla-release
-  - mozilla-beta
-* - **talos-other**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-other-no-nv**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-other-profiling**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
-* - **talos-other-swr**
-  - ✅
-  - ✅
   - ❌
   - ❌
 :::
@@ -8181,11 +6880,6 @@ For the sample commands found below, note that the capitalization used is import
   - mozilla-release
   - mozilla-beta
 * - **talos-other**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-other-no-nv**
   - ✅
   - ✅
   - ❌
@@ -8217,11 +6911,6 @@ For the sample commands found below, note that the capitalization used is import
   - ✅
   - ❌
   - ❌
-* - **talos-other-no-nv**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
 * - **talos-other-profiling**
   - ❌
   - ❌
@@ -8245,11 +6934,6 @@ For the sample commands found below, note that the capitalization used is import
   - mozilla-release
   - mozilla-beta
 * - **talos-other**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
-* - **talos-other-no-nv**
   - ❌
   - ❌
   - ❌
@@ -8328,28 +7012,6 @@ For the sample commands found below, note that the capitalization used is import
   - mozilla-release
   - mozilla-beta
 * - **talos-realworld-webextensions**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
-:::
-
-
-:::{list-table} **{ref}`test-macosx1470-64-shippable/opt <hardware-mac-mini-r8>`**
-:widths: 30 15 15 15 15
-:header-rows: 1
-
-* - **Test Name**
-  - mozilla-central
-  - autoland
-  - mozilla-release
-  - mozilla-beta
-* - **talos-realworld-webextensions**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
-* - **talos-realworld-webextensions-profiling**
   - ❌
   - ❌
   - ❌
@@ -8499,11 +7161,6 @@ For the sample commands found below, note that the capitalization used is import
   - ✅
   - ❌
   - ❌
-* - **talos-other-no-nv**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
 * - **talos-other-profiling**
   - ❌
   - ❌
@@ -8531,46 +7188,9 @@ For the sample commands found below, note that the capitalization used is import
   - ❌
   - ❌
   - ❌
-* - **talos-other-no-nv**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
 * - **talos-other-swr**
   - ❌
   - ❌
-  - ❌
-  - ❌
-:::
-
-
-:::{list-table} **{ref}`test-macosx1470-64-shippable/opt <hardware-mac-mini-r8>`**
-:widths: 30 15 15 15 15
-:header-rows: 1
-
-* - **Test Name**
-  - mozilla-central
-  - autoland
-  - mozilla-release
-  - mozilla-beta
-* - **talos-other**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-other-no-nv**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-other-profiling**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
-* - **talos-other-swr**
-  - ✅
-  - ✅
   - ❌
   - ❌
 :::
@@ -8586,11 +7206,6 @@ For the sample commands found below, note that the capitalization used is import
   - mozilla-release
   - mozilla-beta
 * - **talos-other**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-other-no-nv**
   - ✅
   - ✅
   - ❌
@@ -8622,11 +7237,6 @@ For the sample commands found below, note that the capitalization used is import
   - ✅
   - ❌
   - ❌
-* - **talos-other-no-nv**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
 * - **talos-other-profiling**
   - ❌
   - ❌
@@ -8650,11 +7260,6 @@ For the sample commands found below, note that the capitalization used is import
   - mozilla-release
   - mozilla-beta
 * - **talos-other**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
-* - **talos-other-no-nv**
   - ❌
   - ❌
   - ❌
@@ -8771,11 +7376,6 @@ For the sample commands found below, note that the capitalization used is import
   - ❌
   - ❌
   - ❌
-* - **talos-tabswitch-no-nv**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
 * - **talos-tabswitch-profiling**
   - ❌
   - ❌
@@ -8803,43 +7403,6 @@ For the sample commands found below, note that the capitalization used is import
   - ❌
   - ❌
   - ❌
-* - **talos-tabswitch-no-nv**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
-* - **talos-tabswitch-swr**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
-:::
-
-
-:::{list-table} **{ref}`test-macosx1470-64-shippable/opt <hardware-mac-mini-r8>`**
-:widths: 30 15 15 15 15
-:header-rows: 1
-
-* - **Test Name**
-  - mozilla-central
-  - autoland
-  - mozilla-release
-  - mozilla-beta
-* - **talos-tabswitch**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
-* - **talos-tabswitch-no-nv**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
-* - **talos-tabswitch-profiling**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
 * - **talos-tabswitch-swr**
   - ❌
   - ❌
@@ -8858,11 +7421,6 @@ For the sample commands found below, note that the capitalization used is import
   - mozilla-release
   - mozilla-beta
 * - **talos-tabswitch**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
-* - **talos-tabswitch-no-nv**
   - ❌
   - ❌
   - ❌
@@ -8894,11 +7452,6 @@ For the sample commands found below, note that the capitalization used is import
   - ❌
   - ❌
   - ❌
-* - **talos-tabswitch-no-nv**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
 * - **talos-tabswitch-profiling**
   - ❌
   - ❌
@@ -8922,11 +7475,6 @@ For the sample commands found below, note that the capitalization used is import
   - mozilla-release
   - mozilla-beta
 * - **talos-tabswitch**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
-* - **talos-tabswitch-no-nv**
   - ❌
   - ❌
   - ❌
@@ -9073,33 +7621,6 @@ For the sample commands found below, note that the capitalization used is import
 * - **talos-svgr-swr**
   - ❌
   - ❌
-  - ❌
-  - ❌
-:::
-
-
-:::{list-table} **{ref}`test-macosx1470-64-shippable/opt <hardware-mac-mini-r8>`**
-:widths: 30 15 15 15 15
-:header-rows: 1
-
-* - **Test Name**
-  - mozilla-central
-  - autoland
-  - mozilla-release
-  - mozilla-beta
-* - **talos-svgr**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-svgr-profiling**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
-* - **talos-svgr-swr**
-  - ✅
-  - ✅
   - ❌
   - ❌
 :::
@@ -9449,33 +7970,6 @@ For the sample commands found below, note that the capitalization used is import
 :::
 
 
-:::{list-table} **{ref}`test-macosx1470-64-shippable/opt <hardware-mac-mini-r8>`**
-:widths: 30 15 15 15 15
-:header-rows: 1
-
-* - **Test Name**
-  - mozilla-central
-  - autoland
-  - mozilla-release
-  - mozilla-beta
-* - **talos-tp5o**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-tp5o-profiling**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
-* - **talos-tp5o-swr**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-:::
-
-
 :::{list-table} **{ref}`test-macosx1500-aarch64-shippable/opt <hardware-mac-mini-m4>`**
 :widths: 30 15 15 15 15
 :header-rows: 1
@@ -9706,33 +8200,6 @@ For the sample commands found below, note that the capitalization used is import
 :::
 
 
-:::{list-table} **{ref}`test-macosx1470-64-shippable/opt <hardware-mac-mini-r8>`**
-:widths: 30 15 15 15 15
-:header-rows: 1
-
-* - **Test Name**
-  - mozilla-central
-  - autoland
-  - mozilla-release
-  - mozilla-beta
-* - **talos-g1**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-g1-profiling**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
-* - **talos-g1-swr**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-:::
-
-
 :::{list-table} **{ref}`test-macosx1500-aarch64-shippable/opt <hardware-mac-mini-m4>`**
 :widths: 30 15 15 15 15
 :header-rows: 1
@@ -9871,33 +8338,6 @@ For the sample commands found below, note that the capitalization used is import
 * - **talos-g5-swr**
   - ❌
   - ❌
-  - ❌
-  - ❌
-:::
-
-
-:::{list-table} **{ref}`test-macosx1470-64-shippable/opt <hardware-mac-mini-r8>`**
-:widths: 30 15 15 15 15
-:header-rows: 1
-
-* - **Test Name**
-  - mozilla-central
-  - autoland
-  - mozilla-release
-  - mozilla-beta
-* - **talos-g5**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-g5-profiling**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
-* - **talos-g5-swr**
-  - ✅
-  - ✅
   - ❌
   - ❌
 :::
@@ -10046,11 +8486,6 @@ For the sample commands found below, note that the capitalization used is import
   - ✅
   - ❌
   - ❌
-* - **talos-chrome-no-nv**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
 * - **talos-chrome-profiling**
   - ❌
   - ❌
@@ -10078,46 +8513,9 @@ For the sample commands found below, note that the capitalization used is import
   - ❌
   - ❌
   - ❌
-* - **talos-chrome-no-nv**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
 * - **talos-chrome-swr**
   - ❌
   - ❌
-  - ❌
-  - ❌
-:::
-
-
-:::{list-table} **{ref}`test-macosx1470-64-shippable/opt <hardware-mac-mini-r8>`**
-:widths: 30 15 15 15 15
-:header-rows: 1
-
-* - **Test Name**
-  - mozilla-central
-  - autoland
-  - mozilla-release
-  - mozilla-beta
-* - **talos-chrome**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-chrome-no-nv**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-chrome-profiling**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
-* - **talos-chrome-swr**
-  - ✅
-  - ✅
   - ❌
   - ❌
 :::
@@ -10133,11 +8531,6 @@ For the sample commands found below, note that the capitalization used is import
   - mozilla-release
   - mozilla-beta
 * - **talos-chrome**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-chrome-no-nv**
   - ✅
   - ✅
   - ❌
@@ -10169,11 +8562,6 @@ For the sample commands found below, note that the capitalization used is import
   - ✅
   - ❌
   - ❌
-* - **talos-chrome-no-nv**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
 * - **talos-chrome-profiling**
   - ❌
   - ❌
@@ -10197,11 +8585,6 @@ For the sample commands found below, note that the capitalization used is import
   - mozilla-release
   - mozilla-beta
 * - **talos-chrome**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
-* - **talos-chrome-no-nv**
   - ❌
   - ❌
   - ❌
@@ -10276,11 +8659,6 @@ For the sample commands found below, note that the capitalization used is import
   - ✅
   - ❌
   - ❌
-* - **talos-other-no-nv**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
 * - **talos-other-profiling**
   - ❌
   - ❌
@@ -10308,46 +8686,9 @@ For the sample commands found below, note that the capitalization used is import
   - ❌
   - ❌
   - ❌
-* - **talos-other-no-nv**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
 * - **talos-other-swr**
   - ❌
   - ❌
-  - ❌
-  - ❌
-:::
-
-
-:::{list-table} **{ref}`test-macosx1470-64-shippable/opt <hardware-mac-mini-r8>`**
-:widths: 30 15 15 15 15
-:header-rows: 1
-
-* - **Test Name**
-  - mozilla-central
-  - autoland
-  - mozilla-release
-  - mozilla-beta
-* - **talos-other**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-other-no-nv**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-other-profiling**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
-* - **talos-other-swr**
-  - ✅
-  - ✅
   - ❌
   - ❌
 :::
@@ -10363,11 +8704,6 @@ For the sample commands found below, note that the capitalization used is import
   - mozilla-release
   - mozilla-beta
 * - **talos-other**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-other-no-nv**
   - ✅
   - ✅
   - ❌
@@ -10399,11 +8735,6 @@ For the sample commands found below, note that the capitalization used is import
   - ✅
   - ❌
   - ❌
-* - **talos-other-no-nv**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
 * - **talos-other-profiling**
   - ❌
   - ❌
@@ -10427,11 +8758,6 @@ For the sample commands found below, note that the capitalization used is import
   - mozilla-release
   - mozilla-beta
 * - **talos-other**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
-* - **talos-other-no-nv**
   - ❌
   - ❌
   - ❌
@@ -10522,33 +8848,6 @@ For the sample commands found below, note that the capitalization used is import
 * - **talos-g5-swr**
   - ❌
   - ❌
-  - ❌
-  - ❌
-:::
-
-
-:::{list-table} **{ref}`test-macosx1470-64-shippable/opt <hardware-mac-mini-r8>`**
-:widths: 30 15 15 15 15
-:header-rows: 1
-
-* - **Test Name**
-  - mozilla-central
-  - autoland
-  - mozilla-release
-  - mozilla-beta
-* - **talos-g5**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-g5-profiling**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
-* - **talos-g5-swr**
-  - ✅
-  - ✅
   - ❌
   - ❌
 :::
@@ -10735,33 +9034,6 @@ For the sample commands found below, note that the capitalization used is import
 :::
 
 
-:::{list-table} **{ref}`test-macosx1470-64-shippable/opt <hardware-mac-mini-r8>`**
-:widths: 30 15 15 15 15
-:header-rows: 1
-
-* - **Test Name**
-  - mozilla-central
-  - autoland
-  - mozilla-release
-  - mozilla-beta
-* - **talos-svgr**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-svgr-profiling**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
-* - **talos-svgr-swr**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-:::
-
-
 :::{list-table} **{ref}`test-macosx1500-aarch64-shippable/opt <hardware-mac-mini-m4>`**
 :widths: 30 15 15 15 15
 :header-rows: 1
@@ -10899,33 +9171,6 @@ For the sample commands found below, note that the capitalization used is import
 * - **talos-svgr-swr**
   - ❌
   - ❌
-  - ❌
-  - ❌
-:::
-
-
-:::{list-table} **{ref}`test-macosx1470-64-shippable/opt <hardware-mac-mini-r8>`**
-:widths: 30 15 15 15 15
-:header-rows: 1
-
-* - **Test Name**
-  - mozilla-central
-  - autoland
-  - mozilla-release
-  - mozilla-beta
-* - **talos-svgr**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-svgr-profiling**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
-* - **talos-svgr-swr**
-  - ✅
-  - ✅
   - ❌
   - ❌
 :::
@@ -11092,33 +9337,6 @@ For the sample commands found below, note that the capitalization used is import
 * - **talos-svgr-swr**
   - ❌
   - ❌
-  - ❌
-  - ❌
-:::
-
-
-:::{list-table} **{ref}`test-macosx1470-64-shippable/opt <hardware-mac-mini-r8>`**
-:widths: 30 15 15 15 15
-:header-rows: 1
-
-* - **Test Name**
-  - mozilla-central
-  - autoland
-  - mozilla-release
-  - mozilla-beta
-* - **talos-svgr**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-svgr-profiling**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
-* - **talos-svgr-swr**
-  - ✅
-  - ✅
   - ❌
   - ❌
 :::
@@ -11324,33 +9542,6 @@ For the sample commands found below, note that the capitalization used is import
 :::
 
 
-:::{list-table} **{ref}`test-macosx1470-64-shippable/opt <hardware-mac-mini-r8>`**
-:widths: 30 15 15 15 15
-:header-rows: 1
-
-* - **Test Name**
-  - mozilla-central
-  - autoland
-  - mozilla-release
-  - mozilla-beta
-* - **talos-svgr**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-svgr-profiling**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
-* - **talos-svgr-swr**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-:::
-
-
 :::{list-table} **{ref}`test-macosx1500-aarch64-shippable/opt <hardware-mac-mini-m4>`**
 :widths: 30 15 15 15 15
 :header-rows: 1
@@ -11537,33 +9728,6 @@ For the sample commands found below, note that the capitalization used is import
 :::
 
 
-:::{list-table} **{ref}`test-macosx1470-64-shippable/opt <hardware-mac-mini-r8>`**
-:widths: 30 15 15 15 15
-:header-rows: 1
-
-* - **Test Name**
-  - mozilla-central
-  - autoland
-  - mozilla-release
-  - mozilla-beta
-* - **talos-svgr**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-svgr-profiling**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
-* - **talos-svgr-swr**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-:::
-
-
 :::{list-table} **{ref}`test-macosx1500-aarch64-shippable/opt <hardware-mac-mini-m4>`**
 :widths: 30 15 15 15 15
 :header-rows: 1
@@ -11697,11 +9861,6 @@ For the sample commands found below, note that the capitalization used is import
   - ✅
   - ❌
   - ❌
-* - **talos-other-no-nv**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
 * - **talos-other-profiling**
   - ❌
   - ❌
@@ -11729,46 +9888,9 @@ For the sample commands found below, note that the capitalization used is import
   - ❌
   - ❌
   - ❌
-* - **talos-other-no-nv**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
 * - **talos-other-swr**
   - ❌
   - ❌
-  - ❌
-  - ❌
-:::
-
-
-:::{list-table} **{ref}`test-macosx1470-64-shippable/opt <hardware-mac-mini-r8>`**
-:widths: 30 15 15 15 15
-:header-rows: 1
-
-* - **Test Name**
-  - mozilla-central
-  - autoland
-  - mozilla-release
-  - mozilla-beta
-* - **talos-other**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-other-no-nv**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-other-profiling**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
-* - **talos-other-swr**
-  - ✅
-  - ✅
   - ❌
   - ❌
 :::
@@ -11784,11 +9906,6 @@ For the sample commands found below, note that the capitalization used is import
   - mozilla-release
   - mozilla-beta
 * - **talos-other**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
-* - **talos-other-no-nv**
   - ✅
   - ✅
   - ❌
@@ -11820,11 +9937,6 @@ For the sample commands found below, note that the capitalization used is import
   - ✅
   - ❌
   - ❌
-* - **talos-other-no-nv**
-  - ✅
-  - ✅
-  - ❌
-  - ❌
 * - **talos-other-profiling**
   - ❌
   - ❌
@@ -11848,11 +9960,6 @@ For the sample commands found below, note that the capitalization used is import
   - mozilla-release
   - mozilla-beta
 * - **talos-other**
-  - ❌
-  - ❌
-  - ❌
-  - ❌
-* - **talos-other-no-nv**
   - ❌
   - ❌
   - ❌

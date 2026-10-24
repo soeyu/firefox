@@ -2566,12 +2566,14 @@ class MCallClassHook : public MCallBase {
   const JSNative target_;
   bool constructing_ : 1;
   bool ignoresReturnValue_ : 1;
+  bool maybeCrossRealm_ : 1;
 
   MCallClassHook(JSNative target, bool constructing)
       : MCallBase(classOpcode),
         target_(target),
         constructing_(constructing),
-        ignoresReturnValue_(false) {
+        ignoresReturnValue_(false),
+        maybeCrossRealm_(true) {
     setResultType(MIRType::Value);
   }
 
@@ -2589,7 +2591,8 @@ class MCallClassHook : public MCallBase {
     return numStackArgs() - thisAndNewTarget;
   }
 
-  bool maybeCrossRealm() const { return true; }
+  bool maybeCrossRealm() const { return maybeCrossRealm_; }
+  void setNotCrossRealm() { maybeCrossRealm_ = false; }
 
   bool ignoresReturnValue() const { return ignoresReturnValue_; }
   void setIgnoresReturnValue() { ignoresReturnValue_ = true; }
@@ -3745,7 +3748,9 @@ class MToNumberInt32 : public MUnaryInstruction, public ToInt32Policy::Data {
 
   bool congruentTo(const MDefinition* ins) const override {
     if (!ins->isToNumberInt32() ||
-        ins->toToNumberInt32()->conversion() != conversion()) {
+        ins->toToNumberInt32()->conversion() != conversion() ||
+        ins->toToNumberInt32()->needsNegativeZeroCheck() !=
+            needsNegativeZeroCheck()) {
       return false;
     }
     return congruentIfOperandsEqual(ins);
@@ -3844,11 +3849,12 @@ class MToBigInt : public MUnaryInstruction, public ToBigIntPolicy::Data {
 class MToInt64 : public MUnaryInstruction, public ToInt64Policy::Data {
   explicit MToInt64(MDefinition* def) : MUnaryInstruction(classOpcode, def) {
     setResultType(MIRType::Int64);
-    setMovable();
 
-    // Guard unless the conversion is known to be non-effectful & non-throwing.
-    if (!def->typeIsOneOf(
-            {MIRType::Boolean, MIRType::BigInt, MIRType::Int64})) {
+    // Conversions that are known to be non-effectful & non-throwing can move.
+    // All other conversions are guards.
+    if (def->typeIsOneOf({MIRType::Boolean, MIRType::BigInt, MIRType::Int64})) {
+      setMovable();
+    } else {
       setGuard();
     }
   }

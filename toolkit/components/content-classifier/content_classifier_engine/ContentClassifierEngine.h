@@ -66,6 +66,8 @@ class ContentClassifierRequest {
   bool mPrivateBrowsing = false;
   bool mValid = false;
   bool mIsNonRecommendedAddon = false;
+  // Image or media load, which url-classifier's fingerprinting features skip.
+  bool mPassiveContent = false;
 
  public:
   bool Valid() const { return mValid; }
@@ -73,6 +75,7 @@ class ContentClassifierRequest {
   bool ThirdParty() const { return mThirdParty; }
   bool PrivateBrowsing() const { return mPrivateBrowsing; }
   bool IsNonRecommendedAddon() const { return mIsNonRecommendedAddon; }
+  bool IsPassiveContent() const { return mPassiveContent; }
 
   explicit ContentClassifierRequest(nsIChannel* aChannel);
 
@@ -107,7 +110,8 @@ class ContentClassifierEngine final {
   const ContentClassifierFeature& Feature() const { return mFeature; }
 
   ContentClassifierEngineResult CheckNetworkRequest(
-      const ContentClassifierRequest& aRequest, bool aPreviouslyMatched);
+      const ContentClassifierRequest& aRequest, bool aPreviouslyMatched,
+      bool aMatchDocumentAsNetworkRequest);
 
   // Heap usage of this engine, split by what holds it. See
   // ContentClassifierEngineSizes for what is left out. |aMallocEnclosingSizeOf|

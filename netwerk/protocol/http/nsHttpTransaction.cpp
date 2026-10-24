@@ -6,6 +6,7 @@
 #include "nsHttpTransaction.h"
 
 #include <algorithm>
+#include <memory>
 #include <utility>
 
 #include "HTTPSRecordResolver.h"
@@ -460,6 +461,12 @@ void nsHttpTransaction::OnPendingQueueInserted(
     mHashKeyOfConnectionEntry.Assign(aConnectionHashKey);
   }
 
+  MaybeStartHttp3BackupTimer();
+}
+
+void nsHttpTransaction::MaybeStartHttp3BackupTimer() {
+  MOZ_ASSERT(OnSocketThread(), "not on socket thread");
+
   // Don't create mHttp3BackupTimer if HTTPS RR is used or Happy Eyeballs is
   // enabled. The Happy Eyeballs state machine will handle fallback to h2.
   if ((mConnInfo->IsHttp3() || mConnInfo->IsHttp3ProxyConnection()) &&
@@ -516,10 +523,10 @@ void nsHttpTransaction::SetH2WSConnRefTaken() {
 
 UniquePtr<nsHttpResponseHead> nsHttpTransaction::TakeResponseHeadAndConnInfo(
     nsHttpConnectionInfo** aOut) {
-  MOZ_ASSERT(!mResponseHeadTaken, "TakeResponseHead called 2x");
-
   // Lock TakeResponseHead() against main thread
   MutexAutoLock lock(mLock);
+
+  MOZ_ASSERT(!mResponseHeadTaken, "TakeResponseHead called 2x");
 
   if (aOut) {
     RefPtr<nsHttpConnectionInfo> connInfo = mFinalizedConnInfo;
@@ -539,10 +546,10 @@ UniquePtr<nsHttpResponseHead> nsHttpTransaction::TakeResponseHeadAndConnInfo(
 }
 
 UniquePtr<nsHttpHeaderArray> nsHttpTransaction::TakeResponseTrailers() {
-  MOZ_ASSERT(!mResponseTrailersTaken, "TakeResponseTrailers called 2x");
-
   // Lock TakeResponseTrailers() against main thread
   MutexAutoLock lock(mLock);
+
+  MOZ_ASSERT(!mResponseTrailersTaken, "TakeResponseTrailers called 2x");
 
   mResponseTrailersTaken = true;
   return std::move(mForTakeResponseTrailers);
@@ -1583,6 +1590,11 @@ void nsHttpTransaction::Close(nsresult reason) {
     mDontRetryWithDirectRoute = true;
   }
 
+  const bool restartForHttp3ProtocolError =
+      reason == NS_ERROR_NET_HTTP3_PROTOCOL_ERROR && !mReceivedData &&
+      !mConnInfo->IsHttp3ProxyConnection() &&
+      StaticPrefs::network_http_http3_fallback_to_h2_on_protocol_error();
+
   //
   // if the connection was reset or closed before we wrote any part of the
   // request or if we wrote the request but didn't receive any part of the
@@ -1617,7 +1629,7 @@ void nsHttpTransaction::Close(nsresult reason) {
            psm::GetXPCOMFromNSSError(SSL_ERROR_DOWNGRADE_WITH_EARLY_DATA) ||
        reason == NS_ERROR_HTTP2_FALLBACK_TO_HTTP1 ||
        ShouldRestartOnResumptionError(reason) ||
-       shouldRestartTransactionForHTTPSRR) &&
+       shouldRestartTransactionForHTTPSRR || restartForHttp3ProtocolError) &&
       (!(mCaps & NS_HTTP_STICKY_CONNECTION) ||
        (mCaps & NS_HTTP_CONNECTION_RESTARTABLE) ||
        (mEarlyDataDisposition == EARLY_425))) {
@@ -1662,7 +1674,15 @@ void nsHttpTransaction::Close(nsresult reason) {
             psm::GetXPCOMFromNSSError(SSL_ERROR_DOWNGRADE_WITH_EARLY_DATA) ||
         (!mReceivedData && ((mRequestHead && mRequestHead->IsSafeMethod()) ||
                             !reallySentData || connReused)) ||
-        shouldRestartTransactionForHTTPSRR) {
+        shouldRestartTransactionForHTTPSRR || restartForHttp3ProtocolError) {
+      if (restartForHttp3ProtocolError) {
+        DisableHttp3ForRestart();
+        LOG(
+            ("transaction will be restarted without HTTP/3 after a protocol "
+             "error key=%s",
+             mConnInfo->HashKey().get()));
+      }
+
       if (shouldRestartTransactionForHTTPSRR) {
         MaybeReportFailedSVCDomain(reason, mConnInfo);
         PrepareConnInfoForRetry(reason);
@@ -2917,9 +2937,13 @@ nsresult nsHttpTransaction::ProcessData(char* buf, uint32_t count,
       NS_ENSURE_SUCCESS(rv, rv);
     }
 
-    if (!mContentDecodingCheck && mResponseHead) {
-      mContentDecoding = mResponseHead->HasHeader(nsHttp::Content_Encoding);
-      mContentDecodingCheck = true;
+    if (!mContentDecodingCheck) {
+      // The main thread may take mResponseHead once the data is in the pipe.
+      MutexAutoLock lock(mLock);
+      if (mResponseHead) {
+        mContentDecoding = mResponseHead->HasHeader(nsHttp::Content_Encoding);
+        mContentDecodingCheck = true;
+      }
     }
   }
 
@@ -3038,6 +3062,24 @@ void nsHttpTransaction::DisableHttp3(bool aAllowRetryHTTPSRR) {
       MutexAutoLock lock(mLock);
       mConnInfo.swap(connInfo);
     }
+  }
+}
+
+void nsHttpTransaction::DisableHttp3ForRestart() {
+  MOZ_ASSERT(OnSocketThread(), "not on socket thread");
+
+  mCaps |= NS_HTTP_DISALLOW_HTTP3;
+
+  RefPtr<nsHttpConnectionInfo> connInfo;
+  mConnInfo->CloneAsDirectRoute(getter_AddRefs(connInfo));
+  // Use a separate connection entry, so the restarted transaction can't be
+  // dispatched to an HTTP/3 connection or an attempt that may still race one.
+  connInfo =
+      connInfo->Mutate().SetHttp3Policy(Http3Policy::Disabled).Finalize();
+  RemoveAlternateServiceUsedHeader(mRequestHead);
+  {
+    MutexAutoLock lock(mLock);
+    mConnInfo.swap(connInfo);
   }
 }
 
@@ -3576,9 +3618,9 @@ void nsHttpTransaction::SetHttpTrailers(nsCString& aTrailers) {
   LOG(("[\n    %s\n]", aTrailers.get()));
 
   // Introduce a local variable to minimize the critical section.
-  UniquePtr<nsHttpHeaderArray> httpTrailers(new nsHttpHeaderArray());
-  // Given it's usually null, use double-check locking for performance.
-  if (mForTakeResponseTrailers) {
+  UniquePtr<nsHttpHeaderArray> httpTrailers =
+      std::make_unique<nsHttpHeaderArray>();
+  {
     MutexAutoLock lock(mLock);
     if (mForTakeResponseTrailers) {
       // Copy the trailer. |TakeResponseTrailers| gets the original trailer

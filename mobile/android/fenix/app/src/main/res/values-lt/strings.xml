@@ -140,11 +140,7 @@
   <string name="recently_visited_menu_item_remove">Pašalinti</string>
   <!-- Content description for the button which navigates the user to show all of their history. -->
   <string name="past_explorations_show_all_content_description_2">Rodyti visus ankstesnius tyrinėjimus</string>
-  <!--
-    Browser Fragment
-
-    Content description (not visible, for screen readers etc.): Navigate backward (browsing history)
-  -->
+  <!-- Content description (not visible, for screen readers etc.): Navigate backward (browsing history) -->
   <string name="browser_menu_back">Atgal</string>
   <!-- Content description (not visible, for screen readers etc.): Navigate forward (browsing history) -->
   <string name="browser_menu_forward">Pirmyn</string>
@@ -298,7 +294,11 @@
     Title for the settings page
   -->
   <string name="settings">Nuostatos</string>
-  <!-- Preference category for general settings -->
+  <!--
+    Preferences
+
+    Preference category for general settings
+  -->
   <string name="preferences_category_general">Bendrosios</string>
   <!-- Preference category for all links about Fenix -->
   <string name="preferences_category_about">Apie</string>
@@ -540,8 +540,6 @@
     Title of preference for tabs management
   -->
   <string name="preferences_tabs">Kortelės</string>
-  <!-- Title of preference that allows a user to specify the tab view -->
-  <string name="preferences_tab_view">Kortelių vaizdas</string>
   <!-- Option for a list tab view -->
   <string name="tab_view_list">Sąrašas</string>
   <!-- Option for a grid tab view -->
@@ -578,13 +576,7 @@
   <string name="close_tabs_after_one_week_summary">Užverti po savaitės</string>
   <!-- Summary for tabs preference when auto closing tabs setting is set to auto close tabs after one month -->
   <string name="close_tabs_after_one_month_summary">Užverti po mėnesio</string>
-  <!--
-    Inactive tabs
-
-    Category header of a preference that allows a user to enable or disable the inactive tabs feature
-  -->
-  <string name="preferences_inactive_tabs">Perkelti senas korteles prie neaktyvių</string>
-  <!-- Title of inactive tabs preference -->
+  <!-- Summary of the preference that allows a user to enable or disable the inactive tabs feature. -->
   <string name="preferences_inactive_tabs_title">Kortelės, kurių paskutines dvi savaites nenaudojote, bus perkeltos į neaktyvių skiltį.</string>
   <!--
     Studies
@@ -653,16 +645,6 @@
     %1$d is the number of bookmarks selected
   -->
   <string name="history_multi_select_title">Pasirinkta: %1$d</string>
-  <!-- Text for the header that groups the history for today -->
-  <string name="history_today">Šiandien</string>
-  <!-- Text for the header that groups the history for yesterday -->
-  <string name="history_yesterday">Vakar</string>
-  <!-- Text for the header that groups the history the past 7 days -->
-  <string name="history_7_days">Paskiausios 7 dienos</string>
-  <!-- Text for the header that groups the history the past 30 days -->
-  <string name="history_30_days">Paskiausios 30 dienų</string>
-  <!-- Text for the header that groups the history older than the last month -->
-  <string name="history_older">Seniau</string>
   <!-- Text shown when no history exists -->
   <string name="history_empty_message">Žurnalų įrašų nėra</string>
   <!--

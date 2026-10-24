@@ -24,6 +24,13 @@ XPCOMUtils.defineLazyServiceGetter(
   Ci.nsIPurgeTrackerService
 );
 
+const SAS = Cc["@mozilla.org/storage/activity-service;1"].getService(
+  Ci.nsIStorageActivityService
+);
+
+// nsIStorageActivityService works in microseconds (PRTime).
+const ONE_HOUR_US = 3600 * 1000 * 1000;
+
 const TRACKER_ORIGIN = "https://tracking.example.org";
 const TRACKER_BASE_DOMAIN = "example.org";
 const BENIGN_ORIGIN = "https://example.com";
@@ -38,6 +45,17 @@ function resetPurgeTrackerServiceState() {
   ).wrappedJSObject;
   service._trackingState.clear();
   service._firstIteration = true;
+}
+
+function findActivePrincipal(origin, from, to) {
+  let principals = SAS.getActiveOrigins(from, to);
+  for (let i = 0; i < principals.length; i++) {
+    let principal = principals.queryElementAt(i, Ci.nsIPrincipal);
+    if (principal.origin === origin) {
+      return principal;
+    }
+  }
+  return null;
 }
 
 function storageAccessPermissionsFor(baseDomain) {
@@ -57,6 +75,12 @@ add_setup(async function () {
       "privacy.purge_trackers.date_in_cookie_database"
     );
     Services.prefs.clearUserPref("privacy.purge_trackers.last_purge");
+    // Pushing network.cookie.cookieBehavior below makes ContentBlockingPrefs
+    // rewrite browser.contentblocking.category, which in turn makes
+    // UrlClassifierExceptionListService set this one, also as a user pref.
+    Services.prefs.clearUserPref(
+      "privacy.trackingprotection.allow_list.hasUserInteractedWithETPSettings"
+    );
     // The service is a singleton shared with the rest of the run, so the state
     // this file leaves on it has to go back too.
     resetPurgeTrackerServiceState();
@@ -162,4 +186,40 @@ add_task(async function test_purge_removes_tracker_service_worker() {
   );
 
   await clear_qm_origin_group_via_clearData(BENIGN_ORIGIN);
+});
+
+// The purge considers trackers with storage activity from up to a day ago, so a
+// tracker whose last activity was a few hours ago still has to be purged.
+add_task(async function test_purge_reaches_storage_activity_from_hours_ago() {
+  resetPurgeTrackerServiceState();
+  SAS.testOnlyReset();
+
+  let trackerReg = await install_sw({
+    origin: TRACKER_ORIGIN,
+    script: SW_SCRIPT,
+    scope: "empty.html?purge_aged_activity",
+  });
+  ok(trackerReg, "Service worker registered on the tracker origin");
+
+  await consume_storage(TRACKER_ORIGIN, {
+    cacheBytes: 1024 * 1024,
+    idbBytes: 0,
+  });
+
+  let now = Date.now() * 1000;
+  let active = await TestUtils.waitForCondition(
+    () =>
+      findActivePrincipal(TRACKER_ORIGIN, now - ONE_HOUR_US, now + ONE_HOUR_US),
+    "Tracker origin recorded storage activity"
+  );
+
+  SAS.moveOriginInTime(active, now - 3 * ONE_HOUR_US);
+
+  await PurgeTrackerService.purgeTrackingCookieJars();
+
+  Assert.equal(
+    countRegistrationsForOrigin(TRACKER_ORIGIN),
+    0,
+    "Tracker whose storage activity is hours old removed by purging"
+  );
 });

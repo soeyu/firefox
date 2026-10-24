@@ -690,9 +690,7 @@ class Talos(TestingMixin, MercurialScript, TooltoolMixin, CodeCoverageMixin):
                         output_dir=artifact["dest"],
                         cache=self.config.get("tooltool_cache"),
                     )
-                    unzip = self.query_exe("unzip")
-                    unzip_cmd = [unzip, "-q", "-o", archive, "-d", artifact["dest"]]
-                    self.run_command(unzip_cmd, halt_on_failure=True)
+                    self.unzip(archive, artifact["dest"])
 
                     if "postprocess" in artifact:
                         for subdir, dirs, files in os.walk(output_dir_path):
@@ -743,6 +741,15 @@ class Talos(TestingMixin, MercurialScript, TooltoolMixin, CodeCoverageMixin):
         return super().download_and_extract(
             extract_dirs=extract_dirs, suite_categories=["common", "talos"]
         )
+
+    def query_python_constraints(self):
+        return [
+            os.path.abspath(
+                os.path.join(
+                    self.talos_path, "..", "config", "requirements-mozbase.txt"
+                )
+            )
+        ]
 
     def create_virtualenv(self, **kwargs):
         """VirtualenvMixin.create_virtualenv() assuemes we're using

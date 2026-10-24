@@ -1778,8 +1778,8 @@ export var BrowserTestUtils = {
    *
    * @param {Element} target    The target in which to observe mutations.
    * @param {object}  options   The options to pass to MutationObserver.observe();
-   * @param {function} checkFn  Function that returns true when it wants the promise to be
-   * resolved.
+   * @param {function} checkFn  Function that recieves the target as input, and returns
+   *                            true when it wants the promise to be resolved.
    * @param {object} [waitOptions]
    * @param {string} [waitOptions.msg]
    *        Describes what's being waited for. Used in the rejection message and
@@ -1798,7 +1798,7 @@ export var BrowserTestUtils = {
     { msg, timeout = DEFAULT_MUTATION_TIMEOUT_MS } = {}
   ) {
     let retVal;
-    if ((retVal = checkFn())) {
+    if ((retVal = checkFn(target))) {
       return Promise.resolve(retVal);
     }
     let startTime = ChromeUtils.now();
@@ -1811,7 +1811,7 @@ export var BrowserTestUtils = {
       let timer = 0;
       let settled = false;
       let obs = new win.MutationObserver(() => {
-        if ((retVal = checkFn())) {
+        if ((retVal = checkFn(target))) {
           stop();
           resolve(retVal);
         }
@@ -2188,6 +2188,23 @@ export var BrowserTestUtils = {
   },
 
   /**
+   * Waits until every tab in the window has finished opening.
+   *
+   * @param {Window} win
+   * @returns {Promise<void>}
+   */
+  allTabOpenAnimationsFinished(win) {
+    let { gBrowser } = win;
+    return TestUtils.waitForCondition(
+      () =>
+        gBrowser.tabs.every(tab =>
+          gBrowser.tabContainer.openAnimationFinished(tab)
+        ),
+      "Tabs are fully open"
+    );
+  },
+
+  /**
    * Create enough tabs to cause a tab overflow in the given window.
    *
    * @param {Function|null} registerCleanupFunction
@@ -2266,10 +2283,7 @@ export var BrowserTestUtils = {
     // overflowing. A tab only takes up its share of the scrollport once it is
     // fully open, so measuring before then would badly overshoot.
     while (gBrowser.tabs.length < MAX_TABS_FOR_OVERFLOW) {
-      await TestUtils.waitForCondition(
-        () => Array.from(gBrowser.tabs).every(tab => tab._fullyOpen),
-        "Tabs are fully open"
-      );
+      await this.allTabOpenAnimationsFinished(win);
       let missingSpace = overflowTarget - overflowAmount();
       if (missingSpace < 0) {
         break;

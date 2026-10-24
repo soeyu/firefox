@@ -132,6 +132,7 @@ def split_apps(config, tests):
     }
 
     for test in tests:
+        resolve_keyed_by(test, "raptor.apps", item_name=test["test-name"])
         apps = test["raptor"].pop("apps", None)
         if not apps:
             yield test
@@ -190,7 +191,8 @@ def split_raptor_subtests(config, tests):
         subtests = test["raptor"].pop("subtests", None)
         if not subtests:
             if all(
-                p not in test["test-platform"] for p in ("macosx1400", "macosx1500")
+                p not in test["test-platform"]
+                for p in ("macosx1400", "macosx1500", "macosx2700")
             ):
                 yield test
             continue
@@ -726,10 +728,10 @@ def add_etw_profile(config, tests):
             extra_options.extend([
                 "--browsertime-arg=chrome.args=--enable-features=EnableEtwExports",
                 "--browsertime-arg=chrome.args=--enable-benchmarking",
-                "--browsertime-arg=chrome.args=--js-flags=--perf-prof",
                 "--browsertime-arg=chrome.args=--js-flags=--enable-etw-stack-walking",
                 "--browsertime-arg=chrome.args=--js-flags=--interpreted-frames-native-stack",
                 "--browsertime-arg=chrome.args=--js-flags=--no-turbo-inlining",
+                "--browsertime-arg=chrome.args=--js-flags=--no-maglev-inlining",
                 "--browsertime-arg=chrome.args=--js-flags=--no-compact-code-space",
             ])
 

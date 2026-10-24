@@ -47,6 +47,7 @@ import org.mozilla.fenix.ui.efficiency.core.VerbHost
 import org.mozilla.fenix.ui.efficiency.core.WaitPolicy
 import org.mozilla.fenix.ui.efficiency.core.driveUntil
 import org.mozilla.fenix.ui.efficiency.core.facts
+import org.mozilla.fenix.ui.efficiency.core.groupAbsent
 import org.mozilla.fenix.ui.efficiency.core.groupPresent
 import org.mozilla.fenix.ui.efficiency.core.pageReady
 import org.mozilla.fenix.ui.efficiency.core.reportAround
@@ -387,6 +388,23 @@ abstract class BasePage(protected val composeRule: AndroidComposeTestRule<HomeAc
         return this
     }
 
+    fun mozVerifyElementsByGroupAbsent(group: SelectorGroup): BasePage {
+        val groupLabel = group.toString()
+        val absent =
+            groupAbsent(
+                verb = "verify_group_absent",
+                label = "${pageName}_$groupLabel",
+                selectors = selectorCatalog.selectorsIn(group),
+                policy = WaitPolicy.Poll(),
+                applyPreconditions = false,
+            )
+        if (!absent) {
+            dumpFailure("mozVerifyElementsByGroupAbsent failed: $pageName group '$groupLabel'")
+            assertionFailure("Not all elements in group '$groupLabel' are absent")
+        }
+        return this
+    }
+
     // --- Resolution: selector -> element -----------------------------------------
 
     /**
@@ -500,6 +518,25 @@ abstract class BasePage(protected val composeRule: AndroidComposeTestRule<HomeAc
 
     /** On screen right now? Never throws, never waits, so it can drive control flow. */
     fun mozIsElementPresent(selector: Selector): Boolean = mozVerifyElement(selector, applyPreconditions = false)
+
+    /** Read an element's text once it is non-blank; an async fill (e.g. an autofilled password) can lag the action. */
+    fun mozReadText(
+        selector: Selector,
+        timeout: Long = TestAssetHelper.waitingTime,
+        interval: Long = 300,
+    ): String {
+        var text = ""
+        require(
+            verb = "read_text",
+            selector = selector,
+            expectation = "has non-blank text",
+            policy = WaitPolicy.Poll(timeout, interval),
+            applyPreconditions = false,
+            predicate = { it.text()?.isNotBlank() == true },
+            action = { text = it.text().orEmpty() },
+        )
+        return text
+    }
 
     fun mozVerifyElementAbsent(selector: Selector) = requireAbsent("verify_absent", selector)
 
@@ -906,6 +943,20 @@ abstract class BasePage(protected val composeRule: AndroidComposeTestRule<HomeAc
         mDevice.pressBack()
         mDevice.waitForIdle()
         cmd.ok("Pressed back")
+        return this
+    }
+
+    /**
+     * Fling the whole screen from its center toward [direction], with no element to aim at. Unlike [mozSwipeElement],
+     * this needs no selector resolution and never starts the gesture from a screen edge, so it won't be grabbed by the
+     * system navigation gesture (which backgrounds the app). Used to scroll web content, where the only reliable target
+     * is the viewport itself.
+     */
+    fun mozSwipeScreen(direction: SwipeDirection): BasePage {
+        val cmd = rep().start(TimedReporter.Type.CMD, "swipe_screen", "Swiping screen $direction...")
+        Gestures.onScreen(direction)
+        mDevice.waitForIdle()
+        cmd.ok("Swiped screen $direction")
         return this
     }
 

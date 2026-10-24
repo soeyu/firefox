@@ -89,7 +89,9 @@
 #include "imgIContainer.h"
 #include "mozilla/AppShutdown.h"
 #include "mozilla/AutoRestore.h"
+#include "mozilla/ClearOnShutdown.h"
 #include "mozilla/Components.h"
+#include "mozilla/DynamicallyLinkedFunctionPtr.h"
 #include "mozilla/Likely.h"
 #include "mozilla/Logging.h"
 #include "mozilla/MathAlgorithms.h"
@@ -143,6 +145,7 @@
 #include "nsIScreenManager.h"
 #include "nsISupportsPrimitives.h"
 #include "nsITheme.h"
+#include "nsIThreadShutdown.h"
 #include "nsIWidgetListener.h"
 #include "nsLayoutUtils.h"
 #include "nsLookAndFeel.h"
@@ -207,7 +210,7 @@
 #include "InputData.h"
 #include "mozilla/TaskController.h"
 #include "mozilla/gfx/DeviceManagerDx.h"
-#include "mozilla/layers/APZInputBridge.h"
+#include "mozilla/layers/APZBridge.h"
 #include "mozilla/layers/IAPZCTreeManager.h"
 #include "mozilla/layers/InputAPZContext.h"
 #include "mozilla/layers/KnowsCompositor.h"
@@ -244,6 +247,7 @@ nsWindow* nsWindow::sCurrentWindow = nullptr;
 bool nsWindow::sJustGotDeactivate = false;
 bool nsWindow::sJustGotActivate = false;
 bool nsWindow::sIsInMouseCapture = false;
+TimeStamp nsWindow::sLastAppDeactivationTime;
 
 // Urgent-message reentrancy depth for the static `WindowProc` callback.
 //
@@ -324,6 +328,9 @@ InjectTouchInputPtr nsWindow::sInjectTouchFuncPtr;
 bool nsWindow::sIsNativePointLocked = false;
 bool nsWindow::sIsUsingRawInputForMouseMove = false;
 nsWindow* nsWindow::sNativePointLockedWindow = nullptr;
+
+uint32_t nsWindow::sDesktopIdRequestsInFlight = 0;
+bool nsWindow::sDesktopIdHangForTesting = false;
 
 static SystemTimeConverter<DWORD>& TimeConverter() {
   static SystemTimeConverter<DWORD> timeConverterSingleton;
@@ -892,7 +899,7 @@ void nsWindow::SendAnAPZEvent(InputData& aEvent) {
 
   APZEventResult result;
   if (mAPZC) {
-    result = mAPZC->InputBridge()->ReceiveInputEvent(aEvent);
+    result = mAPZC->Bridge()->ReceiveInputEvent(aEvent);
   }
   if (result.GetStatus() == nsEventStatus_eConsumeNoDefault) {
     return;
@@ -904,12 +911,8 @@ void nsWindow::SendAnAPZEvent(InputData& aEvent) {
   if (aEvent.mInputType == PANGESTURE_INPUT) {
     PanGestureInput& panInput = aEvent.AsPanGestureInput();
     WidgetWheelEvent event = panInput.ToWidgetEvent(this);
-    if (!mAPZC) {
-      if (MayStartSwipeForNonAPZ(panInput)) {
-        return;
-      }
-    } else {
-      event = MayStartSwipeForAPZ(panInput, result);
+    if (mAPZC) {
+      event = MayStartSwipe(panInput, result);
     }
 
     ProcessUntransformedAPZEvent(&event, result);
@@ -2266,28 +2269,72 @@ void nsWindow::GetWorkspaceID(nsAString& workspaceID) {
 }
 
 void nsWindow::AsyncUpdateWorkspaceID() {
+  AssertIsOnMainThread();
+  static StaticRefPtr<nsIThread> sThread;
+
+  if (mDesktopIdUpdatePending ||
+      AppShutdown::IsInOrBeyond(ShutdownPhase::AppShutdownConfirmed)) {
+    return;
+  }
+
+  if (!sThread) {
+    nsCOMPtr<nsIThread> newThread;
+    if (NS_FAILED(
+            NS_NewNamedThread("WinWorkspaceID", getter_AddRefs(newThread)))) {
+      return;
+    }
+    sThread = newThread.forget();
+    RunOnShutdown(
+        [] {
+          nsCOMPtr<nsIThread> thread = sThread.forget();
+          if (!sDesktopIdRequestsInFlight) {
+            thread->Shutdown();
+            return;
+          }
+
+          // GetWindowDesktopId can block forever (bug 2080829), so don't wait
+          // for it.
+          nsCOMPtr<nsIThreadShutdown> shutdown;
+          if (NS_SUCCEEDED(thread->BeginShutdown(getter_AddRefs(shutdown)))) {
+            (void)shutdown->StopWaitingAndLeakThread();
+          }
+        },
+        ShutdownPhase::XPCOMShutdownThreads);
+  }
+
   nsWeakPtr weakSelf = do_GetWeakReference(this);
   // Wrap weak reference in nsMainThreadPtrHandle to resist attempts to
   // Release() the weak reference off-main-thread (it's not thread safe)
   // in case of failed task dispatch.
   nsMainThreadPtrHandle<nsIWeakReference> weakSelfHandle(
       new nsMainThreadPtrHolder("AsyncUpdateWorkspaceID", weakSelf.forget()));
-  NS_DispatchBackgroundTask(NS_NewRunnableFunction(
+  nsresult rv = sThread->Dispatch(NS_NewRunnableFunction(
       "BackgroundUpdateWorkspaceID",
-      [hwnd = mWnd, weakSelfHandle = std::move(weakSelfHandle)]() mutable {
+      [hwnd = mWnd, hangForTesting = sDesktopIdHangForTesting,
+       weakSelfHandle = std::move(weakSelfHandle)]() mutable {
+        if (hangForTesting) {
+          ::Sleep(INFINITE);
+        }
         auto id = DoGetWorkspaceID(hwnd);
         NS_DispatchToMainThread(NS_NewRunnableFunction(
             "MainUpdateWorkspaceID",
             [id = std::move(id),
              weakSelfHandle = std::move(weakSelfHandle)]() mutable {
               AssertIsOnMainThread();
+              --sDesktopIdRequestsInFlight;
               nsCOMPtr<nsIWidget> widgetSelf = do_QueryReferent(weakSelfHandle);
               auto* self = static_cast<nsWindow*>(widgetSelf.get());
               if (self) {
                 self->mDesktopId = id;
+                self->mDesktopIdUpdatePending = false;
               }
             }));
       }));
+  if (NS_FAILED(rv)) {
+    return;
+  }
+  ++sDesktopIdRequestsInFlight;
+  mDesktopIdUpdatePending = true;
 }
 
 void nsWindow::MoveToWorkspace(const nsAString& workspaceID) {
@@ -5717,6 +5764,9 @@ bool nsWindow::ProcessMessageInternal(UINT msg, WPARAM& wParam, LPARAM& lParam,
     } break;
 
     case WM_ACTIVATEAPP: {
+      if (!wParam) {
+        sLastAppDeactivationTime = TimeStamp::Now();
+      }
       // Bug 1851991: Sometimes this can be called before gfxPlatform::Init
       // when a window is created very early. In that case we just forego
       // setting this and accept the GPU process might briefly run at a lower
@@ -6479,8 +6529,10 @@ void nsWindow::OnWindowPosChanged(WINDOWPOS* wp) {
     }
   }
 
-  // Recompute tiled state.
-  SetIsTiled(mWnd && ::IsWindowArranged(mWnd));
+  // Recompute tiled state. IsWindowArranged is missing before Windows 10 1903.
+  static const StaticDynamicallyLinkedFunctionPtr<decltype(&::IsWindowArranged)>
+      pIsWindowArranged(L"user32.dll", "IsWindowArranged");
+  SetIsTiled(mWnd && pIsWindowArranged && pIsWindowArranged(mWnd));
 
   // Notify visibility change when window is activated.
   if (!(wp->flags & SWP_NOACTIVATE) && NeedsToTrackWindowOcclusionState()) {

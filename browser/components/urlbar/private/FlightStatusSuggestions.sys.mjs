@@ -6,6 +6,12 @@ import { UrlbarUtils } from "moz-src:///browser/components/urlbar/UrlbarUtils.sy
 
 import { RealtimeSuggestProvider } from "moz-src:///browser/components/urlbar/private/RealtimeSuggestProvider.sys.mjs";
 
+const lazy = {};
+
+ChromeUtils.defineESModuleGetters(lazy, {
+  UrlbarShared: "chrome://browser/content/urlbar/UrlbarShared.mjs",
+});
+
 /**
  * A feature that supports flight status suggestions.
  */
@@ -137,11 +143,14 @@ export class FlightStatusSuggestions extends RealtimeSuggestProvider {
     let statusL10nArgs;
     if (status == "delayed") {
       statusL10nArgs = {
-        departureEstimatedTime: new Intl.DateTimeFormat(undefined, {
-          hour: "numeric",
-          minute: "numeric",
-          timeZone: getTimeZone(item.departure.estimated_time),
-        }).format(new Date(item.departure.estimated_time)),
+        departureEstimatedTime: new Intl.DateTimeFormat(
+          lazy.UrlbarShared.locale(),
+          {
+            hour: "numeric",
+            minute: "numeric",
+            timeZone: getTimeZone(item.departure.estimated_time),
+          }
+        ).format(new Date(item.departure.estimated_time)),
       };
     }
 
@@ -150,15 +159,11 @@ export class FlightStatusSuggestions extends RealtimeSuggestProvider {
 
     let iconUrl;
     if (item.airline.icon) {
-      // Leave the desired size undefined so that the image's intrinsic size is
-      // used and we can keep hardcoded icon sizes in CSS and out of JS. Note
-      // that the image load will fail if it's an SVG without an intrinsic size,
-      // i.e., if it doesn't have a `width` and `height` on its `<svg>`!
-      iconUrl = UrlbarUtils.getRemoteIconUrl(
-        item.airline.icon,
-        undefined,
-        controller
-      );
+      iconUrl = UrlbarUtils.getRemoteImageUrl({
+        controller,
+        url: item.airline.icon,
+        size: lazy.UrlbarShared.TOP_PICK_ICON_SIZE,
+      });
     }
 
     if (status == "inflight") {
@@ -195,7 +200,7 @@ export class FlightStatusSuggestions extends RealtimeSuggestProvider {
       let minutes = item.time_left_minutes % 60;
       // TODO Bug 1997547: TypeScript support for `Intl.DurationFormat`
       // @ts-ignore
-      timeLeft = new Intl.DurationFormat(undefined, {
+      timeLeft = new Intl.DurationFormat(lazy.UrlbarShared.locale(), {
         style: "short",
       }).format({
         // If hours is zero, pass `undefined` to not show it at all.
@@ -213,14 +218,14 @@ export class FlightStatusSuggestions extends RealtimeSuggestProvider {
       [`image_container_${index}`]: backgroundImage,
       [`image_${index}`]: foregroundImage,
       [`departure_time_${index}`]: {
-        textContent: new Intl.DateTimeFormat(undefined, {
+        textContent: new Intl.DateTimeFormat(lazy.UrlbarShared.locale(), {
           hour: "numeric",
           minute: "numeric",
           timeZone: departureTimeZone,
         }).format(departureTime),
       },
       [`departure_date_${index}`]: {
-        textContent: new Intl.DateTimeFormat(undefined, {
+        textContent: new Intl.DateTimeFormat(lazy.UrlbarShared.locale(), {
           month: "short",
           day: "numeric",
           weekday: "short",
@@ -228,7 +233,7 @@ export class FlightStatusSuggestions extends RealtimeSuggestProvider {
         }).format(departureTime),
       },
       [`arrival_time_${index}`]: {
-        textContent: new Intl.DateTimeFormat(undefined, {
+        textContent: new Intl.DateTimeFormat(lazy.UrlbarShared.locale(), {
           hour: "numeric",
           minute: "numeric",
           timeZone: arrivalTimeZone,

@@ -19,6 +19,7 @@ from mozbuild.frontend.data import (
     Exports,
     FinalTargetPreprocessedFiles,
     GeneratedFile,
+    Headers,
     HostProgram,
     HostRustLibrary,
     HostRustProgram,
@@ -29,6 +30,7 @@ from mozbuild.frontend.data import (
     LocalizedFiles,
     LocalizedPreprocessedFiles,
     MozSrcFiles,
+    PerSourceFlag,
     Program,
     RustLibrary,
     RustProgram,
@@ -221,6 +223,52 @@ class TestEmitterBasic(unittest.TestCase):
         self.assertEqual(flags.flags["WARNINGS_AS_ERRORS"], ["-Werror"])
         self.assertEqual(flags.flags["MOZBUILD_CFLAGS"], ["-Os", "-funroll-loops"])
         self.assertEqual(flags.flags["MOZBUILD_CXXFLAGS"], ["-funroll-loops", "-Os"])
+
+    def test_win32_exe_default_ldflags(self):
+        reader = self.reader(
+            "host-compile-flags",
+            extra_substs={"WIN32_EXE_DEFAULT_LDFLAGS": ["-STACK:8388608"]},
+        )
+        sources, ldflags, host_flags, host_ldflags, lib, target_flags = (
+            self.read_topsrcdir(reader)
+        )
+        link_flags = dict(ldflags.get_flags())
+        self.assertEqual(link_flags["PROGRAM_LDFLAGS"], ["-STACK:8388608"])
+        self.assertNotIn("-STACK:8388608", link_flags.get("LDFLAGS", []))
+        for _, flags in host_ldflags.get_flags():
+            self.assertNotIn("-STACK:8388608", flags)
+
+    def test_macos_program_rpath(self):
+        reader = self.reader(
+            "compile-flags",
+            extra_substs={"OS_ARCH": "Darwin"},
+        )
+        sources, ldflags, lib, flags = self.read_topsrcdir(reader)
+        self.assertEqual(ldflags.flags["MACOS_RPATH"], ["-Wl,-rpath,@executable_path"])
+
+    def test_macos_program_rpath_other_os(self):
+        reader = self.reader("compile-flags")
+        sources, ldflags, lib, flags = self.read_topsrcdir(reader)
+        self.assertEqual(ldflags.flags["MACOS_RPATH"], [])
+
+    def test_per_source_object_deps(self):
+        reader = self.reader("per-source-object-deps")
+        objs = self.read_topsrcdir(reader)
+        flags = [o for o in objs if isinstance(o, PerSourceFlag)]
+        self.assertEqual(len(flags), 1)
+        self.assertEqual(mozpath.basename(flags[0].file_name), "gen.s")
+        generated, source = flags[0].object_deps
+        self.assertIsInstance(generated, ObjDirPath)
+        self.assertEqual(generated, "!include.S")
+        self.assertIsInstance(source, SourcePath)
+        self.assertEqual(source, "included.inc")
+
+    def test_per_source_object_deps_missing(self):
+        reader = self.reader("per-source-object-deps-missing")
+        with self.assertRaisesRegex(
+            SandboxValidationError, "Dependency of gen.s does not exist"
+        ):
+            self.read_topsrcdir(reader)
 
     def test_asflags(self):
         reader = self.reader("asflags", extra_substs={"ASFLAGS": ["-safeseh"]})
@@ -2056,6 +2104,21 @@ class TestEmitterBasic(unittest.TestCase):
             set(["-DFOO", '-DBAZ="abcd"', "-UQUX", "-DBAR=7", "-DVALUE=xyz"]),
         )
 
+    def test_source_headers(self):
+        reader = self.reader("reader-source-headers")
+        objs = self.read_topsrcdir(reader)
+        headers = [
+            header for obj in objs if isinstance(obj, Headers) for header in obj.files
+        ]
+        self.assertEqual(
+            headers,
+            [
+                mozpath.join(reader.config.topsrcdir, "exported.h"),
+                mozpath.join(reader.config.topsrcdir, "header.h"),
+                mozpath.join(reader.config.topsrcdir, "installed.h"),
+            ],
+        )
+
     def test_licenses(self):
         reader = self.reader("licenses")
         objs = self.read_topsrcdir(reader)
@@ -2074,6 +2137,8 @@ class TestEmitterBasic(unittest.TestCase):
         mylib = notices["mylib"]
         self.assertEqual(mylib.notice, "Copyright 2026 Somebody.")
         self.assertEqual(mylib.paths, ["extra/path"])
+        self.assertEqual(mylib.acknowledgement, "Portions are copyright Somebody.")
+        self.assertIsNone(mit.acknowledgement)
 
         self.assertEqual([o.id for o in coverage], ["MIT"])
         self.assertEqual(coverage[0].relsrcdir, "lib")

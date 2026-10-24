@@ -290,6 +290,7 @@ nsPresContext::nsPresContext(dom::Document* aDocument, nsPresContextType aType)
       mHadFirstContentfulPaint(false),
       mHadNonTickContentfulPaint(false),
       mHadContentfulPaintComposite(false),
+      mReadyToReplaceRetainedPaintDeferred(false),
       mNeedsToUpdateHiddenByContentVisibilityForAnimations(false),
       mUserInputEventsAllowed(false),
 #ifdef DEBUG
@@ -1402,9 +1403,11 @@ void nsPresContext::SetInRDMPane(bool aInRDMPane) {
   mInRDMPane = aInRDMPane;
   RecomputeTheme();
   if (mPresShell) {
-    nsContentUtils::AddScriptRunner(NewRunnableMethod<bool>(
-        "PresShell::MaybeRecreateMobileViewportManager", mPresShell,
-        &PresShell::MaybeRecreateMobileViewportManager, true));
+    nsContentUtils::AddScriptRunner(
+        NewRunnableMethod<PresShell::MobileViewportManagerUpdate>(
+            "PresShell::MaybeRecreateMobileViewportManager", mPresShell,
+            &PresShell::MaybeRecreateMobileViewportManager,
+            PresShell::MobileViewportManagerUpdate::ManagerTypeMayChange));
   }
 }
 
@@ -2072,8 +2075,13 @@ bool nsPresContext::FlushPendingMediaFeatureValuesChanged() {
 
   // MediumFeaturesChanged updates the applied rules, so it always gets called.
   if (mPresShell) {
-    change.mRestyleHint |=
+    const RestyleHint rulesHint =
         mPresShell->StyleSet()->MediumFeaturesChanged(change.mReason);
+    change.mRestyleHint |= rulesHint;
+    // A @view-transition rule in a @media rule can start or stop matching.
+    if (rulesHint) {
+      mDocument->OutboundViewTransitionRulesChanged();
+    }
   }
 
   const bool changedStyle = change.mRestyleHint || change.mChangeHint;
@@ -2420,8 +2428,41 @@ void nsPresContext::NotifyRevokingDidPaint(TransactionId aTransactionId) {
   });
 }
 
+void nsPresContext::SendReadyToReplaceRetainedPaint() {
+  mReadyToReplaceRetainedPaintDeferred = false;
+  mReadyToReplaceRetainedPaintTransactionId.reset();
+  if (!IsRootContentDocumentCrossProcess()) {
+    return;
+  }
+  if (auto* bc = BrowserChild::GetFrom(mDocument->GetDocShell())) {
+    if (mDocument->IsInitialDocument()) {
+      bc->SendReadyToReplaceRetainedPaintNormalPriority();
+    } else {
+      bc->SendReadyToReplaceRetainedPaint();
+    }
+  }
+}
+
+void nsPresContext::SendReadyToReplaceRetainedPaintAfterNextComposite() {
+  mReadyToReplaceRetainedPaintDeferred = false;
+  mReadyToReplaceRetainedPaintTransactionId =
+      Some(mRefreshDriver->LastTransactionId().Next());
+}
+
+void nsPresContext::FlushDeferredReadyToReplaceRetainedPaint() {
+  if (mReadyToReplaceRetainedPaintDeferred ||
+      mReadyToReplaceRetainedPaintTransactionId) {
+    SendReadyToReplaceRetainedPaint();
+  }
+}
+
 void nsPresContext::NotifyDidPaintForSubtree(
     TransactionId aTransactionId, const mozilla::TimeStamp& aTimeStamp) {
+  if (mReadyToReplaceRetainedPaintTransactionId &&
+      aTransactionId >= *mReadyToReplaceRetainedPaintTransactionId) {
+    SendReadyToReplaceRetainedPaint();
+  }
+
   if (mFirstContentfulPaintTransactionId && !mHadContentfulPaintComposite) {
     if (aTransactionId >= *mFirstContentfulPaintTransactionId) {
       mHadContentfulPaintComposite = true;
@@ -2865,20 +2906,9 @@ void nsPresContext::FlushFontPaletteValues() {
   mFontPaletteValueSet = styleSet->BuildFontPaletteValueSet();
   mFontPaletteValuesDirty = false;
 
-  if (mFontPaletteCache) {
-    mFontPaletteCache->SetPaletteValueSet(mFontPaletteValueSet);
-  }
-
   // Even if we're not reflowing anything, a change to the palette means we
   // need to repaint in order to show the new colors.
   InvalidatePaintedLayers();
-}
-
-gfx::PaletteCache& nsPresContext::FontPaletteCache() {
-  if (!mFontPaletteCache) {
-    mFontPaletteCache = MakeUnique<gfx::PaletteCache>(mFontPaletteValueSet);
-  }
-  return *mFontPaletteCache.get();
 }
 
 void nsPresContext::SetVisibleArea(const nsRect& aRect) {

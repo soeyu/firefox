@@ -28,13 +28,12 @@ const startupPhases = {
   "before profile selection": {
     allowlist: {
       modules: new Set([
-        "resource:///modules/BrowserGlue.sys.mjs",
+        "moz-src:///browser/components/BrowserGlue.sys.mjs",
         "moz-src:///browser/components/DesktopActorRegistry.sys.mjs",
-        "resource:///modules/StartupRecorder.sys.mjs",
+        "moz-src:///browser/components/StartupRecorder.sys.mjs",
         "resource://gre/modules/AppConstants.sys.mjs",
         "resource://gre/modules/ActorManagerParent.sys.mjs",
         "resource://gre/modules/CustomElementsListener.sys.mjs",
-        "resource://gre/modules/LaunchOnLogin.sys.mjs",
         "resource://gre/modules/MainProcessSingleton.sys.mjs",
         "resource://gre/modules/XPCOMUtils.sys.mjs",
       ]),
@@ -88,7 +87,7 @@ const startupPhases = {
         "resource://gre/modules/FxAccounts.sys.mjs",
         "resource://gre/modules/FxAccountsStorage.sys.mjs",
         "resource://gre/modules/PlacesSyncUtils.sys.mjs",
-        "resource://gre/modules/PushComponents.sys.mjs",
+        "moz-src:///dom/push/PushComponents.sys.mjs",
       ]),
       services: new Set(["@mozilla.org/browser/nav-bookmarks-service;1"]),
     },
@@ -107,13 +106,6 @@ const startupPhases = {
     },
   },
 };
-
-if (AppConstants.platform != "linux") {
-  let modules = startupPhases["before profile selection"].allowlist.modules;
-  modules.add(
-    "moz-src:///browser/components/shell/StartupOSIntegration.sys.mjs"
-  );
-}
 
 if (
   Services.prefs.getBoolPref("browser.startup.blankWindow") &&

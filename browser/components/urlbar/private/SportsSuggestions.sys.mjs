@@ -205,7 +205,7 @@ export class SportsSuggestions extends RealtimeSuggestProvider {
     });
 
     // Compute the date chiclet components.
-    let partsArray = new Intl.DateTimeFormat(undefined, {
+    let partsArray = new Intl.DateTimeFormat(lazy.UrlbarShared.locale(), {
       month: "short",
       day: "numeric",
       timeZone: zonedNow.timeZoneId,
@@ -220,16 +220,11 @@ export class SportsSuggestions extends RealtimeSuggestProvider {
 
       let iconUrl;
       if (item[itemKey]?.icon) {
-        // Leave the desired size undefined so that the image's intrinsic size
-        // is used and we can keep hardcoded icon sizes in CSS and out of JS.
-        // Note that the image load will fail if it's an SVG without an
-        // intrinsic size, i.e., if it doesn't have a `width` and `height` on
-        // its `<svg>`!
-        iconUrl = UrlbarUtils.getRemoteIconUrl(
-          item[itemKey].icon,
-          undefined,
-          controller
-        );
+        iconUrl = UrlbarUtils.getRemoteImageUrl({
+          controller,
+          url: item[itemKey].icon,
+          size: lazy.UrlbarShared.TOP_PICK_ICON_SIZE,
+        });
       }
 
       memo[team] = {

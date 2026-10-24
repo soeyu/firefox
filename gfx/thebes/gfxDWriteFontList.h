@@ -198,7 +198,7 @@ class gfxDWriteFontEntry final : public gfxFontEntry {
   virtual ~gfxDWriteFontEntry();
 
 #if MOZ_FONTATIONS
-  void InitSkrifaFontFace() override;
+  void InitSkrifaFontFace() override MOZ_REQUIRES(mLock);
 #endif
 
   bool HasVariationsInternal() override;
@@ -208,10 +208,10 @@ class gfxDWriteFontEntry final : public gfxFontEntry {
 
   hb_blob_t* GetFontTableInternal(uint32_t aTableTag) override;
 
-  virtual nsresult CopyFontTable(uint32_t aTableTag,
-                                 nsTArray<uint8_t>& aBuffer) override;
+  nsresult CopyFontTable(uint32_t aTableTag,
+                         nsTArray<uint8_t>& aBuffer) override;
 
-  virtual gfxFont* CreateFontInstance(const gfxFontStyle* aFontStyle);
+  gfxFont* CreateFontInstance(const gfxFontStyle* aFontStyle) override;
 
   nsresult CreateFontFace(
       IDWriteFontFace** aFontFace, const gfxFontStyle* aFontStyle = nullptr,
@@ -412,9 +412,6 @@ class gfxDWriteFontList final : public gfxPlatformFontList {
       WidthRange aWidthForEntry, SlantStyleRange aStyleForEntry,
       FontData* aFontData) override;
 
-  IDWriteGdiInterop* GetGDIInterop() { return mGDIInterop; }
-  bool UseGDIFontTableAccess() const;
-
   bool FindAndAddFamiliesLocked(
       FontVisibilityProvider* aFontVisibilityProvider,
       mozilla::StyleGenericFontFamily aGeneric, const nsACString& aFamily,
@@ -497,10 +494,6 @@ class gfxDWriteFontList final : public gfxPlatformFontList {
   virtual already_AddRefed<FontInfoData> CreateFontInfoData();
 
   gfxFloat mForceGDIClassicMaxFontSize;
-
-  // whether to use GDI font table access routines
-  bool mGDIFontTableAccess;
-  RefPtr<IDWriteGdiInterop> mGDIInterop;
 
   RefPtr<DWriteFontFallbackRenderer> mFallbackRenderer;
   RefPtr<IDWriteTextFormat> mFallbackFormat;

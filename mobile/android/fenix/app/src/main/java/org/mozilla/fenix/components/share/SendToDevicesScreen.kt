@@ -5,6 +5,7 @@
 package org.mozilla.fenix.components.share
 
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -27,6 +28,7 @@ import androidx.compose.ui.platform.rememberNestedScrollInteropConnection
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.tooling.preview.PreviewLightDark
 import androidx.compose.ui.unit.dp
 import mozilla.components.compose.base.BottomSheetHandle
@@ -42,8 +44,7 @@ import org.mozilla.fenix.components.share.store.ShareUiState
 import org.mozilla.fenix.share.listadapters.SyncShareOption
 import org.mozilla.fenix.theme.FirefoxTheme
 
-private val SendToDevicesContentBottomPadding = 64.dp
-
+@Suppress("LongParameterList")
 @Composable
 internal fun SendToDevicesContent(
     uiState: ShareUiState,
@@ -53,6 +54,7 @@ internal fun SendToDevicesContent(
     onSignInClicked: () -> Unit,
     onSignOutClicked: () -> Unit,
     onRetryClicked: () -> Unit,
+    onLearnMoreClicked: () -> Unit,
 ) {
     val singleDevices = uiState.singleDevices
     FirefoxTheme {
@@ -62,7 +64,6 @@ internal fun SendToDevicesContent(
                     .padding(
                         start = FirefoxTheme.layout.space.static200,
                         end = FirefoxTheme.layout.space.static200,
-                        bottom = SendToDevicesContentBottomPadding,
                     )
                     .nestedScroll(rememberNestedScrollInteropConnection())
         ) {
@@ -101,7 +102,7 @@ internal fun SendToDevicesContent(
                     SendToDevicesUiMode.Offline -> NoInternetConnectionScreen(onRetryClicked)
                     SendToDevicesUiMode.Reconnect,
                     SendToDevicesUiMode.SignIn -> ReconnectToSyncScreen(onSignInClicked, onSignOutClicked)
-                    SendToDevicesUiMode.NoDevices -> NoDevicesAvailableScreen()
+                    SendToDevicesUiMode.NoDevices -> NoDevicesAvailableScreen(onLearnMoreClicked)
                     SendToDevicesUiMode.DeviceList ->
                         DeviceListScreen(
                             devices = singleDevices,
@@ -122,22 +123,24 @@ private fun DeviceListScreen(
     onSend: (Set<SyncShareOption.SingleDevice>) -> Unit,
     onDeviceSelectionToggle: (SyncShareOption.SingleDevice) -> Unit,
 ) {
-    val isSingleDevice = devices.size == 1
-    DeviceList(
-        devices = devices,
-        selectedDevices = if (isSingleDevice) emptySet() else selectedDevices,
-        onDeviceClicked =
-            if (isSingleDevice) {
-                { device -> onSend(setOf(device)) }
-            } else {
-                onDeviceSelectionToggle
-            },
-    )
-    if (!isSingleDevice) {
-        SendToDevicesButton(
-            selectedDevices = selectedDevices,
-            onSend = onSend,
+    Column(modifier = Modifier.padding(bottom = FirefoxTheme.layout.space.static200)) {
+        val isSingleDevice = devices.size == 1
+        DeviceList(
+            devices = devices,
+            selectedDevices = if (isSingleDevice) emptySet() else selectedDevices,
+            onDeviceClicked =
+                if (isSingleDevice) {
+                    { device -> onSend(setOf(device)) }
+                } else {
+                    onDeviceSelectionToggle
+                },
         )
+        if (!isSingleDevice) {
+            SendToDevicesButton(
+                selectedDevices = selectedDevices,
+                onSend = onSend,
+            )
+        }
     }
 }
 
@@ -195,7 +198,7 @@ private fun DeviceList(
 
 @Composable
 private fun LoadingScreen() {
-    Column(modifier = Modifier.fillMaxWidth()) {
+    Column(modifier = Modifier.fillMaxWidth().padding(bottom = FirefoxTheme.layout.space.static400)) {
         CircularProgressIndicator(
             modifier =
                 Modifier.align(Alignment.CenterHorizontally).padding(vertical = FirefoxTheme.layout.space.static500)
@@ -204,8 +207,11 @@ private fun LoadingScreen() {
 }
 
 @Composable
-private fun NoDevicesAvailableScreen() {
-    Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
+private fun NoDevicesAvailableScreen(onLearnMoreClicked: () -> Unit) {
+    Column(
+        verticalArrangement = Arrangement.spacedBy(20.dp),
+        modifier = Modifier.padding(bottom = FirefoxTheme.layout.space.static400),
+    ) {
         Image(
             painter = painterResource(id = R.drawable.kit_devices_sync),
             contentDescription = null,
@@ -227,6 +233,16 @@ private fun NoDevicesAvailableScreen() {
                     textAlign = TextAlign.Center,
                     color = MaterialTheme.colorScheme.secondary,
                     style = FirefoxTheme.typography.body2,
+                )
+                Text(
+                    text = stringResource(id = R.string.sync_send_tab_empty_state_link),
+                    textAlign = TextAlign.Center,
+                    style =
+                        FirefoxTheme.typography.body2.copy(
+                            color = MaterialTheme.colorScheme.tertiary,
+                            textDecoration = TextDecoration.Underline,
+                        ),
+                    modifier = Modifier.fillMaxWidth().clickable(onClick = onLearnMoreClicked),
                 )
             }
         }
@@ -267,7 +283,7 @@ private fun ReconnectToSyncScreen(
     Spacer(modifier = Modifier.size(20.dp))
     Column(
         verticalArrangement = Arrangement.spacedBy(FirefoxTheme.layout.space.static150),
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().padding(bottom = FirefoxTheme.layout.space.static400),
     ) {
         FilledButton(
             text = stringResource(R.string.sync_send_tab_error_auth_button),
@@ -287,7 +303,7 @@ private fun ReconnectToSyncScreen(
 private fun NoInternetConnectionScreen(onRetryClicked: () -> Unit) {
     Column(
         verticalArrangement = Arrangement.spacedBy(20.dp),
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().padding(bottom = FirefoxTheme.layout.space.static400),
     ) {
         Image(
             painter = painterResource(id = R.drawable.kit_plug_error),
@@ -359,6 +375,7 @@ private fun SendToDevicesContentWithDevicesPreview() {
                 onSignInClicked = {},
                 onSignOutClicked = {},
                 onRetryClicked = {},
+                onLearnMoreClicked = {},
             )
         }
     }
@@ -377,6 +394,7 @@ private fun SendToDevicesContentWithOneDevicePreview() {
                 onSignInClicked = {},
                 onSignOutClicked = {},
                 onRetryClicked = {},
+                onLearnMoreClicked = {},
             )
         }
     }
@@ -395,6 +413,7 @@ private fun SendToDevicesContentNoDevicesPreview() {
                 onSignInClicked = {},
                 onSignOutClicked = {},
                 onRetryClicked = {},
+                onLearnMoreClicked = {},
             )
         }
     }
@@ -413,6 +432,7 @@ private fun SendToDevicesContentReconnectToSyncPreview() {
                 onSignInClicked = {},
                 onSignOutClicked = {},
                 onRetryClicked = {},
+                onLearnMoreClicked = {},
             )
         }
     }
@@ -431,6 +451,7 @@ private fun SendToDevicesContentNoInternetPreview() {
                 onSignInClicked = {},
                 onSignOutClicked = {},
                 onRetryClicked = {},
+                onLearnMoreClicked = {},
             )
         }
     }
@@ -449,6 +470,7 @@ private fun SendToDevicesLoadingPreview() {
                 onSignInClicked = {},
                 onSignOutClicked = {},
                 onRetryClicked = {},
+                onLearnMoreClicked = {},
             )
         }
     }

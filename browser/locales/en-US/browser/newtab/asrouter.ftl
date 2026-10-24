@@ -498,6 +498,14 @@ lapsed-user-toast-subtitle = Check out new ways you can browse with more choice,
 lapsed-user-toast-whats-new-button = See what’s new
 lapsed-user-toast-dismiss-button = Dismiss
 
+# Title of the second toast in the series. "New look" refers to the refreshed
+# design of the browser; "No starting over" means users don't have to set up
+# the browser again from scratch.
+lapsed-user-toast-import-title = New look. No starting over.
+# "The browser you use today" refers to another browser the user currently
+# uses instead of this one, such as Chrome or Edge.
+lapsed-user-toast-import-subtitle = Bring your bookmarks, passwords and history from the browser you use today.
+
 ## Refresh Firefox infobar
 ##
 ## Shown at startup when the profile has not been used in over 60 days, or when
@@ -508,3 +516,23 @@ refresh-unused-profile-infobar-message = It looks like you haven’t started { -
 refresh-reinstalled-profile-infobar-message = Looks like you’ve reinstalled { -brand-short-name }. Want us to clean it up for a fresh, like-new experience?
 refresh-profile-infobar-button = Refresh { -brand-short-name }…
   .accesskey = e
+
+## Infobar shown at startup to suggest session-restore
+
+# <img data-l10n-name="icon"/> will be replaced by the application menu icon
+restore-session-startup-suggestion-message = <strong>Open previous tabs?</strong> You can restore your previous session from the { -brand-short-name } application menu <img data-l10n-name="icon"/>, under History.
+restore-session-startup-suggestion-button = Show me how
+
+## Taskbar Tabs Spotlight
+##
+## A dialog that suggests websites to add to the Windows taskbar. Each website
+## is shown in a row with its name, web address and an “Add” button.
+
+taskbar-tabs-spotlight-title = Open your favorite sites like an app
+taskbar-tabs-spotlight-subtitle = One click launches your most used sites in a streamlined window with all of { -brand-short-name }’s protections.
+# Heading above the list of suggested websites.
+taskbar-tabs-spotlight-sites-heading = Select to add to your taskbar
+# Button shown in each row of the list of websites. Clicking it adds the
+# website in that row to the Windows taskbar.
+taskbar-tabs-spotlight-add-button = Add
+taskbar-tabs-spotlight-done-button = Done

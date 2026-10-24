@@ -7,27 +7,11 @@ const AITAB_PREF = "browser.smartwindow.aitab.enabled";
 const PAGE_NAME = "hotels_san_francisco_1.html";
 const PAGE_URL = `about:smartpage?page=${PAGE_NAME}`;
 
-const PAGE_CONFIG = {
-  header: {
-    type: "header",
-    eyebrow: "From your open tabs",
-    title: "Hotels in Lisbon",
-    subhead: "4 options gathered from your open tabs",
-  },
-  blocks: [
-    { type: "text", layout: "summary", title: "What you are comparing" },
-    { type: "table", layout: "comparison", title: "Nightly rates" },
-    { layout: "summary", title: "A block with no type" },
-  ],
-  footer: {
-    type: "footer",
-    text: "Keep it going",
-    buttons: [
-      { text: "Open the booking site", href: "https://example.com/book" },
-      { text: "Add a block", href: "app://views/add" },
-    ],
-  },
-};
+/* import-globals-from head_aitab.js */
+Services.scriptloader.loadSubScript(
+  getRootDirectory(gTestPath) + "head_aitab.js",
+  this
+);
 
 add_task(async function test_actor_registered_when_enabled() {
   await SpecialPowers.pushPrefEnv({ set: [[AITAB_PREF, true]] });
@@ -195,31 +179,35 @@ add_task(async function test_renders_page_config() {
       await header.updateComplete;
       Assert.equal(
         header.shadowRoot.querySelector(".aitab-title").textContent,
-        config.header.title,
+        config.children[0].title,
         "The header title is rendered"
       );
       Assert.equal(
         content.document.title,
-        config.header.title,
+        config.children[0].title,
         "The document title follows the header title so history shows it"
       );
       Assert.deepEqual(
         [...shadowRoot.querySelectorAll(".aitab-block")].map(
           block => block.dataset.blockType
         ),
-        ["text", "table"],
+        ["textblock", "timeline"],
         "Every typed block gets a placeholder that keeps its type, and a block with no type is skipped"
       );
 
-      const chips = [...shadowRoot.querySelectorAll(".aitab-chip")];
-      Assert.equal(chips.length, 2, "Both footer buttons are rendered");
-      Assert.equal(chips[0].localName, "a", "An https href becomes a link");
-      Assert.equal(
-        chips[0].target,
-        "_blank",
-        "The link opens in a new tab, leaving the generated page up"
+      const footer = shadowRoot.querySelector(".aitab-sheet + aitab-footer");
+      Assert.ok(footer, "The footer is rendered after the page content");
+      await footer.wrappedJSObject.updateComplete;
+      const brand = footer.shadowRoot.querySelector(".aitab-footer-brand");
+      await ContentTaskUtils.waitForCondition(
+        () => brand.textContent,
+        "The footer credit is localized"
       );
-      Assert.equal(chips[1].localName, "span", "A non-http href stays inert");
+      Assert.equal(
+        brand.textContent,
+        await content.document.l10n.formatValue("aitab-page-footer-brand"),
+        "The footer credit is the Smart Window brand alone"
+      );
     });
   });
 
@@ -326,5 +314,75 @@ add_task(async function test_a_failing_store_surfaces_an_error() {
     AITabStore.getBySlug = original;
   }
 
+  await SpecialPowers.popPrefEnv();
+});
+
+add_task(async function test_visit_recorded_in_history() {
+  await SpecialPowers.pushPrefEnv({ set: [[AITAB_PREF, true]] });
+  await PlacesUtils.history.clear();
+
+  const { slug } = await AITabStore.create({
+    convId: "conv-history",
+    slug: "history_page",
+    title: "History",
+  });
+  const url = `about:smartpage?page=${slug}`;
+
+  const visited = PlacesTestUtils.waitForNotification("page-visited", visits =>
+    visits.some(visit => visit.url == url)
+  );
+  const titled = PlacesTestUtils.waitForNotification(
+    "page-title-changed",
+    events => events.some(event => event.url == url && event.title)
+  );
+
+  await BrowserTestUtils.withNewTab(url, async () => {
+    await Promise.all([visited, titled]);
+  });
+
+  Assert.ok(
+    await PlacesUtils.history.hasVisits(url),
+    "Visiting a generated page records it in history"
+  );
+  const { title } = await PlacesUtils.history.fetch(url);
+  Assert.ok(title, "The history entry has a title");
+
+  await AITabStore.deleteBySlug(slug);
+  await PlacesUtils.history.clear();
+  await SpecialPowers.popPrefEnv();
+});
+
+add_task(async function test_missing_page_removed_from_history() {
+  await SpecialPowers.pushPrefEnv({ set: [[AITAB_PREF, true]] });
+  await PlacesUtils.history.clear();
+
+  const otherPageURL = "about:smartpage?page=some_other_page";
+  await PlacesTestUtils.addVisits([otherPageURL, "https://example.com/"]);
+
+  const visited = PlacesTestUtils.waitForNotification("page-visited", visits =>
+    visits.some(visit => visit.url == PAGE_URL)
+  );
+
+  await BrowserTestUtils.withNewTab(PAGE_URL, async browser => {
+    await visited;
+    const state = await getPageState(browser);
+    Assert.equal(state.status, "unavailable", "The page has nothing stored");
+
+    await TestUtils.waitForCondition(
+      async () => !(await PlacesUtils.history.hasVisits(PAGE_URL)),
+      "The visit to the missing page is removed from history"
+    );
+  });
+
+  Assert.ok(
+    await PlacesUtils.history.hasVisits(otherPageURL),
+    "History for a different generated page is kept"
+  );
+  Assert.ok(
+    await PlacesUtils.history.hasVisits("https://example.com/"),
+    "Unrelated history is kept"
+  );
+
+  await PlacesUtils.history.clear();
   await SpecialPowers.popPrefEnv();
 });

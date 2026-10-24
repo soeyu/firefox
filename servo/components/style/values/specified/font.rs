@@ -113,13 +113,16 @@ pub enum SystemFont {
 )]
 #[allow(missing_docs)]
 #[cfg(feature = "servo")]
-/// void enum for system font, can never exist
-pub enum SystemFont {}
+/// Dummy struct for system font, can never be constructed.
+pub struct SystemFont {
+    #[css(skip)]
+    _forbid_construction: (),
+}
 
 #[allow(missing_docs)]
 #[cfg(feature = "servo")]
 impl SystemFont {
-    pub fn parse(_: &mut Parser) -> Result<Self, ()> {
+    pub fn parse(_context: &ParserContext, _input: &mut Parser) -> Result<Self, ()> {
         Err(())
     }
 }
@@ -997,8 +1000,8 @@ impl FontSize {
     /// of different styles and font instances when "random" floating-point sizes are used.
     #[inline]
     pub fn quantize_font_size(size: CSSPixelLength) -> CSSPixelLength {
-        // If the size is < 1024px, just snap to an integer number of appUnits.
-        if size.px() < 1024.0 {
+        // If the size is < 1024px and >= 0.1px, just snap to an integer number of appUnits.
+        if size.px() < 1024.0 && size.px() >= 0.1 {
             return CSSPixelLength::from(app_units::Au::from_f32_px(size.px()));
         }
 
@@ -1018,8 +1021,14 @@ impl FontSize {
         }
         let d = size.px() * SCALE_PLUS_ONE;
         let t = d - size.px();
-        // Snap the result to integer appUnits.
-        CSSPixelLength::from(app_units::Au::from_f32_px(d - t))
+        let quantized = d - t;
+        if quantized < 0.1 {
+            // Don't snap tiny values.
+            CSSPixelLength::new(quantized)
+        } else {
+            // Snap the quantized result to integer appUnits.
+            CSSPixelLength::from(app_units::Au::from_f32_px(quantized))
+        }
     }
 }
 

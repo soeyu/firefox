@@ -60,8 +60,8 @@ pub const IMAGE_BUFFER_KINDS: [ImageBufferKind; 4] = [
     ImageBufferKind::TextureExternalBT709,
 ];
 
-/// Sampler uniforms bound on every program after a successful link. Names
-/// absent from a given shader are skipped by `bind_shader_samplers`.
+/// The texture slot each sampler reads from, fixed on every program when it
+/// is linked. Names absent from a given shader are skipped.
 const SAMPLER_BINDINGS: &[(&'static str, TextureSampler)] = &[
     ("sColor0", TextureSampler::Color0),
     ("sColor1", TextureSampler::Color1),
@@ -74,6 +74,7 @@ const SAMPLER_BINDINGS: &[(&'static str, TextureSampler)] = &[
     ("sClipMask", TextureSampler::ClipMask),
     ("sGpuBufferF", TextureSampler::GpuBufferF),
     ("sGpuBufferI", TextureSampler::GpuBufferI),
+    ("sPathEdges", TextureSampler::PathEdges),
 ];
 
 const DITHERING_FEATURE: &str = "DITHERING";
@@ -207,6 +208,7 @@ impl LazilyCompiledShader {
             VertexArrayKind::Clear => &desc::CLEAR,
             VertexArrayKind::Copy => &desc::COPY,
             VertexArrayKind::Mask => &desc::MASK,
+            VertexArrayKind::PathTile => &desc::PATH_TILE,
         }
     }
 
@@ -216,13 +218,10 @@ impl LazilyCompiledShader {
     fn build_program(&self, device: &mut Device) -> Result<Program, ShaderError> {
         let mut program = device.create_program(self.name, &self.features)?;
 
-        if let Err(err) = device.link_program(&mut program, self.vertex_descriptor()) {
+        if let Err(err) = device.link_program(&mut program, self.vertex_descriptor(), SAMPLER_BINDINGS) {
             device.delete_program(program);
             return Err(err);
         }
-
-        device.bind_program(&program);
-        device.bind_shader_samplers(&program, SAMPLER_BINDINGS);
 
         Ok(program)
     }
@@ -324,7 +323,7 @@ impl LazilyCompiledShader {
             let vertex_descriptor = self.vertex_descriptor();
 
             let program = self.program.as_mut().unwrap();
-            if let Err(err) = device.link_program(program, vertex_descriptor) {
+            if let Err(err) = device.link_program(program, vertex_descriptor, SAMPLER_BINDINGS) {
                 // A failed link deletes the program object, so drop it rather
                 // than retrying against a dead GL name on the next bind. The
                 // next attempt builds a fresh one, which is what makes a
@@ -334,10 +333,6 @@ impl LazilyCompiledShader {
                 }
                 return Err(err);
             }
-
-            let program = self.program.as_mut().unwrap();
-            device.bind_program(program);
-            device.bind_shader_samplers(&program, SAMPLER_BINDINGS);
 
             if let Some(profile) = &mut profile {
                 let end_time = zeitstempel::now();
@@ -593,6 +588,7 @@ pub struct Shaders {
     cs_scale: Vec<Option<ShaderHandle>>,
     cs_line_decoration: ShaderHandle,
     cs_svg_filter_node: ShaderHandle,
+    cs_path_tile: ShaderHandle,
 
     // The are "primitive shaders". These shaders draw and blend
     // final results on screen. They are aware of tile boundaries.
@@ -652,7 +648,7 @@ impl Shaders {
             device.get_capabilities().supports_advanced_blend_equation &&
             options.allow_advanced_blend_equation;
 
-        let texture_external_version = if device.get_capabilities().supports_image_external_essl3 {
+        let texture_external_version = if device.get_capabilities().supports_external_textures_in_all_shaders {
             TextureExternalVersion::ESSL3
         } else {
             TextureExternalVersion::ESSL1
@@ -935,6 +931,13 @@ impl Shaders {
             &shader_list,
         )?;
 
+        let cs_path_tile = loader.create_shader(
+            ShaderKind::Cache(VertexArrayKind::PathTile),
+            "cs_path_tile",
+            &[],
+            &shader_list,
+        )?;
+
 
         let cs_border_segment = loader.create_shader(
             ShaderKind::Cache(VertexArrayKind::Border),
@@ -977,6 +980,7 @@ impl Shaders {
             cs_line_decoration,
             cs_scale,
             cs_svg_filter_node,
+            cs_path_tile,
             ps_text_run,
             ps_text_run_dual_source,
             ps_quad_textured,
@@ -1175,6 +1179,7 @@ impl Shaders {
     pub fn cs_border_solid_superellipse(&mut self) -> &mut LazilyCompiledShader { self.loader.get(self.cs_border_solid_superellipse) }
     pub fn cs_line_decoration(&mut self) -> &mut LazilyCompiledShader { self.loader.get(self.cs_line_decoration) }
     pub fn cs_svg_filter_node(&mut self) -> &mut LazilyCompiledShader { self.loader.get(self.cs_svg_filter_node) }
+    pub fn cs_path_tile(&mut self) -> &mut LazilyCompiledShader { self.loader.get(self.cs_path_tile) }
     pub fn ps_quad_textured(&mut self) -> &mut LazilyCompiledShader {
         self.loader.get(self.ps_quad_textured)
     }
@@ -1242,7 +1247,7 @@ impl CompositorShaders {
         let mut yuv_clip = Vec::new();
         let mut yuv_fast = Vec::new();
 
-        let texture_external_version = if device.get_capabilities().supports_image_external_essl3 {
+        let texture_external_version = if device.get_capabilities().supports_external_textures_in_all_shaders {
             TextureExternalVersion::ESSL3
         } else {
             TextureExternalVersion::ESSL1

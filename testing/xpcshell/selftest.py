@@ -9,6 +9,7 @@
 # or use "mach test" with any xpcshell test file or directory:
 # ./mach test testing/modules/tests/xpcshell/test_assert.js --self-test
 
+import json
 import os
 import pprint
 import re
@@ -319,6 +320,28 @@ function run_test () {
 }
 """
 
+# A test that crashes the first time it runs, and passes when run again.
+TEST_CRASHING_ONCE = """
+function run_test () {
+  // In selftests, the cwd is the temporary directory created by the
+  // selftest's setUp, not a real test source directory, so writing there is
+  // fine. Don't imitate this in a real test: it would write into the shared
+  // test source directory.
+  let marker = do_get_cwd();
+  marker.append("crashed_once");
+  if (!marker.exists()) {
+    marker.create(Ci.nsIFile.NORMAL_FILE_TYPE, 0o644);
+    const { ctypes } = ChromeUtils.importESModule(
+      "resource://gre/modules/ctypes.sys.mjs"
+    );
+    let zero = new ctypes.intptr_t(8);
+    let badptr = ctypes.cast(zero, ctypes.PointerType(ctypes.int32_t));
+    badptr.contents;
+  }
+  Assert.ok(true);
+}
+"""
+
 # A test for asynchronous cleanup functions
 ASYNC_CLEANUP = """
 function run_test() {
@@ -494,9 +517,12 @@ class XPCShellTestsTests(unittest.TestCase):
 
     def setUp(self):
         self.log = six.StringIO()
+        self.errorsummary = six.StringIO()
         self.tempdir = tempfile.mkdtemp()
         logger = structured.commandline.setup_logging(
-            f"selftest{id(self)}", {}, {"tbpl": self.log}
+            f"selftest{id(self)}",
+            {},
+            {"tbpl": self.log, "errorsummary": self.errorsummary},
         )
         self.x = XPCShellTests(logger)
 
@@ -549,7 +575,9 @@ prefs = [
         val += "\n".join(testlines)
         self.manifest = self.writeFile("xpcshell.toml", val)
 
-    def assertTestResult(self, expected, shuffle=False, verbose=False, headless=False):
+    def assertTestResult(
+        self, expected, shuffle=False, verbose=False, headless=False, retry=None
+    ):
         """
         Assert that self.x.runTests with manifest=self.manifest
         returns |expected|.
@@ -568,7 +596,9 @@ prefs = [
         kwargs["utility_path"] = self.utility_path
         kwargs["repeat"] = 0
         # Don't retry tests that are expected to fail
-        if not expected:
+        if retry is not None:
+            kwargs["retry"] = retry
+        elif not expected:
             kwargs["retry"] = False
         # Self-tests run sub-processes that include coverage flushing and other
         # per-test overhead; use a generous factor so slow workers don't spuriously
@@ -594,6 +624,19 @@ prefs = [
 ========
 {}
 ========""".format(s, "expected" if expected else "not expected", l),
+        )
+
+    def errorSummaryLines(self, action):
+        lines = [json.loads(l) for l in self.errorsummary.getvalue().splitlines()]
+        return [l for l in lines if l["action"] == action]
+
+    def assertGroupStatus(self, expected):
+        statuses = [g["status"] for g in self.errorSummaryLines("group_result")]
+        self.assertEqual(
+            [expected],
+            statuses,
+            msg=f"Unexpected group statuses in error summary:\n"
+            f"{self.errorsummary.getvalue()}\nlog:\n{self.log.getvalue()}",
         )
 
     def assertInLog(self, s):
@@ -715,6 +758,90 @@ prefs = [
             any(re.search(line_pat, line) for line in log_lines),
             f"No line resembling a stack frame was found in\n{pprint.pformat(log_lines)}",
         )
+
+    @unittest.skipIf(
+        mozinfo.isWin or not mozinfo.info.get("debug"),
+        "We don't have a stack fixer on hand for windows.",
+    )
+    def testAssertionFailureAction(self):
+        """
+        An assertion and the stack printed after it are reported as a single
+        assertion_failure structured log action.
+        """
+        records = []
+        self.x.log.add_handler(records.append)
+        self.writeFile(
+            "test_assert.js",
+            """
+          add_test(function test_asserts_immediately() {
+            Components.classes["@mozilla.org/xpcom/debug;1"]
+                      .getService(Components.interfaces.nsIDebug2)
+                      .assertion("foo", "assertion failed", "test.js", 1)
+            run_next_test();
+          });
+        """,
+        )
+
+        self.writeManifest(["test_assert.js"])
+        self.assertTestResult(False)
+
+        failures = [r for r in records if r["action"] == "assertion_failure"]
+        self.assertEqual(len(failures), 1, pprint.pformat(records))
+        failure = failures[0]
+        self.assertEqual(failure["kind"], "NS_ASSERTION")
+        # XPCOM_DEBUG_BREAK=stack-and-abort: the assertion aborts the process.
+        self.assertTrue(failure["fatal"])
+        self.assertEqual(failure["message"], "foo: 'assertion failed'")
+        self.assertEqual(failure["file"], "test.js")
+        self.assertEqual(failure["lineno"], 1)
+        self.assertTrue(failure["test"].endswith("test_assert.js"))
+        self.assertTrue(
+            any("NS_DebugBreak" in f.get("function", "") for f in failure["stack"]),
+            pprint.pformat(failure["stack"]),
+        )
+
+    def testUBSanErrorAction(self):
+        """
+        An UndefinedBehaviorSanitizer report printed by the test process is
+        reported as a single ubsan_error structured log action.
+
+        The report lines are synthetic, so unlike testAssertionFailureAction
+        this needs no stack fixer and runs on every build type.
+        """
+        records = []
+        self.x.log.add_handler(records.append)
+        self.writeFile(
+            "test_ubsan.js",
+            """
+          function run_test() {
+            dump("/src/ggml-c.c:7106:33: runtime error: applying non-zero offset 96 to null pointer\\n");
+            dump("    #0 0x7b417858d37c in incr_ptr_aligned /src/ggml-c.c:7106:33\\n");
+            dump("    #1 0x7f42401b0a33 in clone misc/../sysdeps/unix/sysv/linux/x86_64/clone.S:100\\n");
+            dump("SUMMARY: UndefinedBehaviorSanitizer: undefined-behavior /src/ggml-c.c:7106:33\\n");
+            Assert.ok(true);
+          }
+        """,
+        )
+
+        self.writeManifest(["test_ubsan.js"])
+        self.assertTestResult(True, verbose=True)
+
+        errors = [r for r in records if r["action"] == "ubsan_error"]
+        self.assertEqual(len(errors), 1, pprint.pformat(records))
+        error = errors[0]
+        self.assertEqual(error["kind"], "undefined-behavior")
+        self.assertEqual(
+            error["message"], "applying non-zero offset 96 to null pointer"
+        )
+        self.assertEqual(error["file"], "/src/ggml-c.c")
+        self.assertEqual(error["lineno"], 7106)
+        self.assertEqual(error["column"], 33)
+        self.assertTrue(error["test"].endswith("test_ubsan.js"))
+        self.assertEqual(
+            [f["function"] for f in error["stack"]], ["incr_ptr_aligned", "clone"]
+        )
+        self.assertEqual(error["stack"][1]["line"], 100)
+        self.assertNotIn("column", error["stack"][1])
 
     def testChildPass(self):
         """
@@ -1054,7 +1181,41 @@ add_test({
         self.assertEqual(1, self.x.testCount)
         self.assertEqual(0, self.x.passCount)
         self.assertEqual(1, self.x.failCount)
+        self.assertGroupStatus("ERROR")
         if mozinfo.info.get("crashreporter"):
+            self.assertInLog("\nPROCESS-CRASH")
+
+    def testCrashOnceWithRetry(self):
+        """
+        Test that a crash in a test that passes when retried is logged quietly
+        and does not fail the group.
+        """
+        self.writeFile("test_crashes_once.js", TEST_CRASHING_ONCE)
+        self.writeManifest(["test_crashes_once.js"])
+
+        self.assertTestResult(True, retry=True)
+        self.assertEqual(1, self.x.passCount)
+        self.assertEqual(0, self.x.failCount)
+        self.assertGroupStatus("OK")
+        if mozinfo.info.get("crashreporter"):
+            self.assertEqual(1, len(self.errorSummaryLines("crash")))
+            self.assertInLog("INFO crashed process")
+            self.assertNotInLog("\nPROCESS-CRASH")
+
+    def testCrashWithRetry(self):
+        """
+        Test that a test that also crashes when retried fails the group.
+        """
+        self.writeFile("test_crashes.js", TEST_CRASHING)
+        self.writeManifest(["test_crashes.js"])
+
+        self.assertTestResult(False, retry=True)
+        self.assertEqual(0, self.x.passCount)
+        self.assertEqual(1, self.x.failCount)
+        self.assertGroupStatus("ERROR")
+        if mozinfo.info.get("crashreporter"):
+            self.assertEqual(2, len(self.errorSummaryLines("crash")))
+            self.assertInLog("INFO crashed process")
             self.assertInLog("\nPROCESS-CRASH")
 
     def testLogCorrectFileName(self):

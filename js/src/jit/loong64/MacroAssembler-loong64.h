@@ -223,6 +223,8 @@ class MacroAssemblerLOONG64 : public Assembler {
   FaultingCodeRange ma_fld_d(FloatRegister ft, Address address);
   FaultingCodeRange ma_fst_d(FloatRegister ft, Address address);
   FaultingCodeRange ma_fst_s(FloatRegister ft, Address address);
+  FaultingCodeRange ma_vld(FloatRegister vd, Address address);
+  FaultingCodeRange ma_vst(FloatRegister vd, Address address);
 
   void ma_pop(FloatRegister f);
   void ma_push(FloatRegister f);
@@ -427,6 +429,11 @@ class MacroAssemblerLOONG64 : public Assembler {
                             uint64_t address) {
     wasmStoreAbsoluteImpl(access, AnyRegister(value.reg), memoryBase, address);
   }
+
+  FaultingCodeRange wasmStoreLane(const wasm::MemoryAccessDesc& access,
+                                  FloatRegister src, Register memoryBase,
+                                  Register ptr, uint32_t laneSize,
+                                  uint32_t laneIndex);
 
  protected:
   void wasmLoadAbsoluteImpl(const wasm::MemoryAccessDesc& access,

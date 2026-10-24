@@ -264,6 +264,8 @@ static bool IsObjectEscaped(MDefinition* ins, MInstruction* newObject,
     return true;
   }
 
+  MOZ_RELEASE_ASSERT(!shape->isDictionary());
+
   // Check if the object is escaped. If the object is not the first argument
   // of either a known Store / Load, then we consider it as escaped. This is a
   // cheap and conservative escape analysis.
@@ -2773,14 +2775,8 @@ bool RestReplacer::escapes(MInstruction* ins) {
       }
 
       case MDefinition::Opcode::GuardShape: {
-        const Shape* shape = rest()->shape();
-        if (!shape) {
-          JitSpew(JitSpew_Escape, "No shape defined.");
-          return true;
-        }
-
         auto* guard = def->toGuardShape();
-        if (shape != guard->shape()) {
+        if (rest()->shape() != guard->shape()) {
           JitSpewDef(JitSpew_Escape, "has a non-matching guard shape\n", def);
           return true;
         }

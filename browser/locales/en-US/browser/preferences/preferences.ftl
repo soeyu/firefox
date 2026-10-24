@@ -195,9 +195,6 @@ always-check-default =
 startup-restore-windows-and-tabs =
     .label = Open previous windows and tabs
     .accesskey = s
-startup-windows-launch-on-login-profile-disabled =
-    .message = Enable this preference by checking “{ profile-manager-use-selected.label }” in the “Choose User Profile” window.
-
 windows-launch-on-login =
     .label = Open { -brand-short-name } automatically when your computer starts up
     .accesskey = O
@@ -893,6 +890,11 @@ settings-keyboard-shortcuts-group =
 settings-keyboard-shortcuts-customkeys-link =
     .label = Customize keyboard shortcuts
 
+# Link that takes the user to the Search category of settings, where the
+# address bar options live.
+settings-keyboard-shortcuts-addressbar-link =
+    .label = Customize address bar settings in Search
+
 settings-media-group =
     .label = Media
 
@@ -1040,6 +1042,16 @@ search-separate-default-engine-2 =
 
 search-separate-default-engine-dropdown =
     .aria-label = Default search engine in private windows
+
+# "Navigation" here means moving around within the address bar and its results
+# list, not navigation to the address bar.
+addressbar-navigation-group =
+    .label = Address bar navigation
+
+# "Results menu" refers to the menu available on each row of the address bar
+# results list, which offers actions such as dismissing the result.
+addressbar-skip-result-menu-on-tab =
+    .label = Skip the results menu when using the tab key to move focus
 
 search-suggestions-header-2 =
     .label = Search engine suggestions
@@ -1361,6 +1373,11 @@ prefs-syncing-off-2 =
     .label = Syncing is OFF
     .description = Turn on sync to get your bookmarks, passwords, history, and more on any device.
 
+# This string is shown when the user's device has per-device syncing enabled but sync is disabled on the device.
+prefs-syncing-off-3 =
+    .label = Syncing is OFF
+    .description = Turn on sync to get your bookmarks, passwords, history, and more on this device.
+
 prefs-sync-turn-on-syncing =
     .label = Turn on syncing…
     .accesskey = s
@@ -1392,9 +1409,15 @@ sync-syncing-across-devices-heading = You are syncing these items across all you
 
 sync-syncing-across-devices-heading-2 = Data synced across devices
 
+sync-syncing-across-devices-heading-3 = Data syncing on this device
+
 sync-syncing-across-devices-empty-state2 =
     .label = Manage synced data
     .description = You aren’t syncing anything… yet. Start syncing to get all of your data on all your devices.
+
+sync-syncing-across-devices-empty-state3 =
+    .label = Manage synced data
+    .description = You aren’t syncing anything… yet. Choose what to sync on this device.
 
 sync-currently-syncing-bookmarks = Bookmarks
 sync-currently-syncing-history = History
@@ -1420,6 +1443,14 @@ settings-sync-disconnect-button =
 
 sync-choose-what-to-sync-dialog4 =
     .title = Manage what syncs on all your connected devices
+    .style = min-width: 36em;
+    .buttonlabelaccept = Save
+    .buttonaccesskeyaccept = S
+    .buttonlabelextra2 = Disconnect…
+    .buttonaccesskeyextra2 = D
+
+sync-choose-what-to-sync-dialog5 =
+    .title = Manage what syncs on this device
     .style = min-width: 36em;
     .buttonlabelaccept = Save
     .buttonaccesskeyaccept = S
@@ -2021,6 +2052,72 @@ permissions-data-section =
 pane-permissions-data-title2 = Permissions and data
   .title = Permissions and data
 
+notifications-section-header =
+    .heading = Notifications
+
+notifications-entry-card-header =
+    .label = Notifications
+    .description = Choose which websites can send notifications, and how those alerts show up.
+
+# Variables:
+#   $count (number) - Number of websites with a stored notification decision,
+#                     always one or more. The zero case is a separate message,
+#                     notifications-entry-manage-button-empty.
+notifications-entry-manage-button =
+    .label = Manage notification settings
+    .description =
+        { $count ->
+            [one] { $count } website
+           *[other] { $count } websites
+        }
+
+# Replaces notifications-entry-manage-button when no website has a stored
+# notification decision. It deliberately carries no description: the empty
+# state is stated on the Notifications page rather than on this row.
+notifications-entry-manage-button-empty =
+    .label = Manage website notification settings
+
+notifications-website-card-header =
+    .label = Website notifications
+    .description = Choose how websites can send notifications.
+
+notifications-filter =
+    .placeholder = Search websites
+
+# Heading of the website column in the list of websites and their notification
+# state, shown when the list has rows.
+notifications-list-header =
+    .label = Website
+# Heading of the state column in the list of websites and their notification
+# state, shown when the list has rows.
+notifications-list-header-state = Allow notifications
+# Heading of the list of websites when it has no rows, because no website has a
+# stored notification decision or a search matches no website.
+notifications-list-header-empty =
+    .label = Websites
+
+# Read-only state shown on each row of the website notifications list, in the
+# column headed "Allow notifications". "Always" is used where notifications can
+# also be delivered while Firefox is closed.
+notifications-state-always = Always
+# Read-only state shown on each row of the website notifications list, in the
+# column headed "Allow notifications". "Allow" is used where notifications
+# cannot be delivered while Firefox is closed.
+notifications-state-allow = Allow
+# Read-only state shown on each row of the website notifications list, in the
+# column headed "Allow notifications", for websites blocked from sending
+# notifications.
+notifications-state-never = Never
+
+# Shown as a row under the list header when no website has a stored
+# notification decision.
+notifications-empty-message =
+    .label = No website notifications added.
+
+# Shown as a row under the list header when a search matches no website.
+notifications-no-results-message =
+    .label = No website notifications match your search.
+
 permissions-header3 =
     .label = Permissions
     .description = Manage what websites can access, control, or trigger.
@@ -2076,6 +2173,17 @@ permissions-addon-install-warning3 =
 permissions-addon-exceptions2 =
     .label = Choose which websites can install extensions
     .accesskey = E
+
+# App links are links that a website can ask to open for you, like email
+# (mailto:) links.
+permissions-allow-app-links =
+    .label = Allow sites to ask to open app links.
+    .accesskey = A
+
+# Opens the list of sites that are blocked from asking to open app links.
+permissions-app-links-manage-button =
+    .label = Manage blocked sites
+    .accesskey = M
 
 ## Privacy Section - Data Collection
 

@@ -22,28 +22,24 @@
 
 .grouped-chips {
   border: var(--border-width) solid var(--border-color-transparent);
-  /* stylelint-disable-next-line stylelint-plugin-mozilla/use-design-tokens */
   border-radius: var(--ai-grouped-chip-container-border-radius);
-  /* stylelint-disable-next-line stylelint-plugin-mozilla/use-design-tokens */
   border-end-end-radius: var(--ai-grouped-chip-container-border-end-end-radius);
   cursor: pointer;
   display: flex;
   gap: var(--space-xsmall);
-  /* stylelint-disable-next-line stylelint-plugin-mozilla/use-design-tokens */
   padding: var(--ai-grouped-chip-container-padding);
 
   @media not (prefers-reduced-motion) {
     transition: gap 0.3s ease-in-out;
   }
 
-  @media not forced-colors {
-    /* stylelint-disable-next-line stylelint-plugin-mozilla/use-design-tokens */
+  @media not (forced-colors) {
     background-color: var(--ai-grouped-chip-container-bg-color);
+    color: var(--button-text-color);
   }
 }
 
 .grouped-chips__label {
-  color: var(--text-color);
   font-size: var(--font-size-small);
   margin-inline-start: var(--space-xsmall);
 }
@@ -64,10 +60,13 @@
 
 .grouped-chips__favicon {
   border-radius: var(--border-radius-xsmall);
-  height: var(--size-item-small);
-  /* stylelint-disable-next-line stylelint-plugin-mozilla/use-design-tokens */
+  height: var(--icon-size);
+  width: var(--icon-size);
+}
+
+.grouped-chips__favicon,
+.grouped-chips__stacked-icon {
   margin-inline-end: calc(-1 * var(--space-xxsmall));
-  width: var(--size-item-small);
 
   @media not (prefers-reduced-motion) {
     transition: margin-inline-end 0.3s ease-in-out;
@@ -81,7 +80,7 @@
 }
 
 .grouped-chips__arrow-icon {
-  fill: var(--icon-color);
+  fill: currentColor;
   -moz-context-properties: fill;
 
   .grouped-chips[data-is-smartwindow-panel-open] & {

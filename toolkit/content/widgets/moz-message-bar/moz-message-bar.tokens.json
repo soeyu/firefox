@@ -249,15 +249,6 @@
               "value": "{space.small}"
             }
           }
-        },
-        "offset": {
-          "value": {
-            "default": "0px",
-            "nova": {
-              "comment": "There is no equivalent value for this token in Figma",
-              "value": "1px"
-            }
-          }
         }
       },
       "padding-block-start": {
@@ -283,7 +274,18 @@
   },
   "text": {
     "color": {
-      "value": "{text.color.@base}"
+      "@base": {
+        "value": "{text.color.@base}"
+      },
+      "warning": {
+        "value": "{text.color.@base}"
+      },
+      "success": {
+        "value": "{text.color.@base}"
+      },
+      "critical": {
+        "value": "{text.color.@base}"
+      }
     },
     "container": {
       "gap": {

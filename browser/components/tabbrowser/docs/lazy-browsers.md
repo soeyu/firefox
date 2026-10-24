@@ -31,8 +31,8 @@ the start, which is how session store keys the tab's state either way.
 
 What the tab does carry:
 
-- **Session store's lazy state** — a `url`, a `title`, a `userTypedValue` and a
-  `userTypedClear`, held for as long as the browser is lazy and read with
+- **Session store's lazy state** — a `url`, a `title` and a `userTypedValue`,
+  held for as long as the browser is lazy and read with
   `SessionStore.getLazyTabValue(tab, key)`. This is where the substituted
   properties below get their answers, and what a consumer should read instead of
   going through the browser.
@@ -50,16 +50,16 @@ matter: `gBrowser.selectedTabs` can contain lazy ones, which is why
 
 ## The substituted properties
 
-`#createLazyBrowser` defines the 42 names in `#browserBindingProperties` as own
+`#createLazyBrowser` defines the names in `#browserBindingProperties` as own
 accessors on the `<browser>` element, shadowing the element's real
-implementations until insertion deletes them again. Thirteen of them answer
+implementations until insertion deletes them again. The following answer
 without touching the browser:
 
 | Property | Answers with |
 | --- | --- |
 | `currentURI` | Session store's URL for the tab as an `nsIURI`, cached on the element, or `about:blank`. |
 | `contentTitle` | Session store's title for the tab. |
-| `userTypedValue`, `userTypedClear` | Session store's values for the tab. |
+| `userTypedValue` | Session store's value for the tab. |
 | `remoteType` | `ChromeUtils.predictRemoteTypeForURI` for that URL and the tab's `usercontextid`. |
 | `isRemoteBrowser` | Whether the element carries the `remote` attribute. |
 | `audioMuted` | Whether the tab carries the `muted` attribute. |
@@ -72,11 +72,10 @@ without touching the browser:
 `reload` and `reloadWithFlags` are substituted with a version that inserts the
 browser and defers the reload until session store has restored the tab.
 
-**Every one of the remaining 27 inserts the browser, on read and on write
-alike.** So a consumer can undo a tab's laziness by looking at it: a docShell, a
-content process, a synchronous `about:blank` load and a `TabBrowserInserted`
-caused by nothing but the read. On Nightly that path logs the property's name and
-a stack citing
+**All others insert the browser, on read and on write alike.** So a consumer
+can undo a tab's laziness by looking at it: a docShell, a content process, a
+synchronous `about:blank` load and a `TabBrowserInserted` caused by nothing but
+the read. On Nightly that path logs the property's name and a stack citing
 [Bug 1345098](https://bugzilla.mozilla.org/show_bug.cgi?id=1345098) to the
 browser console. The ones that read as harmless are the trap:
 
@@ -150,8 +149,8 @@ tab already has a `linkedPanel` or the window is closing, so calling it
 defensively is fine. Otherwise, in order:
 
 1. Deletes the substituted properties, unmasking the element's own, and consumes
-   the `_browserParams` the tab has been carrying since it was created or last
-   discarded — `uriIsAboutBlank`, `remoteType` and `usingPreloadedContent`.
+   the browser parameters Tabbrowser has kept for the tab since it was created or
+   last discarded — `uriIsAboutBlank`, `remoteType` and `usingPreloadedContent`.
 2. Gives the panel a unique id and sets `tab.linkedPanel` to it.
 3. Appends the panel to `tabpanels`. That runs the browser element's
    constructors, which fire notifications that can run code inspecting
@@ -192,18 +191,23 @@ created the tab, undefined for every later insertion.
 
 ## Discarding a browser
 
-`gBrowser.discardBrowser(tab, forceDiscard)` takes a loaded tab back to lazy. It
+`gBrowser.discardBrowser(tab, options)` takes a loaded tab back to lazy. It
 returns false without doing anything for a tab that is selected, closing,
 already lazy or not remote, for a window that is closing, and when
 `permitUnload` says no. A tab with an open dialog is also refused unless
-`forceDiscard` is set, since a discard dismisses dialogs.
+`options.forceDiscard` is true, since a discard dismisses dialogs.
+
+The `options` object accepts the following properties:
+
+- `forceDiscard` (default: `false`): Allows discarding a tab with an open dialog.
+- `renderDiscarded` (default: `forceDiscard`): Controls whether to render the tab as discarded.
 
 Flush the tab's state first. `await gBrowser.prepareDiscardBrowser(tab)` hands
 session store the latest data, and it is safe to call even if the discard is
 then refused.
 
 The discard resets the tab's sharing state and forgets its WebRTC streams,
-aborts its dialogs, records `_browserParams` for the eventual restore, has
+aborts its dialogs, records the browser parameters for the eventual restore, has
 session store take the tab back to lazy state, removes the progress listener and
 its filter, closes and removes the findbar, and clears the tab's now-stale
 `activemedia-blocked`, `busy`, `pendingicon`, `progress` and `soundplaying`

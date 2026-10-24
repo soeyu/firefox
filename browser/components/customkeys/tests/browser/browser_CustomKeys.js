@@ -17,12 +17,6 @@ add_setup(async function () {
   // there is a race condition where they sometimes won't be handled again in
   // the parent process afterward.
   const tab = await BrowserTestUtils.openNewForegroundTab(gBrowser);
-  // This test exercises the legacy bookmarks sidebar panel; opt out of the
-  // updated bookmarks panel so the expected document/element ids are present.
-  // TODO(Bug 2039395): adapt this test to the new bookmarks sidebar panel and remove this sidebar.updateBookmarks.enabled pushPrefEnv)
-  await SpecialPowers.pushPrefEnv({
-    set: [["sidebar.updatedBookmarks.enabled", false]],
-  });
   registerCleanupFunction(function () {
     CustomKeys.resetAll();
     BrowserTestUtils.removeTab(tab);
@@ -367,6 +361,32 @@ add_task(async function testDuplicateTab() {
   BrowserTestUtils.removeTab(newTab);
   info("Resetting all keys");
   CustomKeys.resetAll();
+});
+
+add_task(async function testCopyTabURL() {
+  CustomKeys.changeKey("key_copyTabURL", {
+    modifiers: consts.unusedModifiers,
+    key: consts.unusedKey,
+  });
+  try {
+    const url = "https://example.com/?copy=tab#fragment";
+    await BrowserTestUtils.withNewTab(url, async () => {
+      await SimpleTest.promiseClipboardChange(url, () =>
+        EventUtils.synthesizeKey(consts.unusedKey, consts.unusedOptions, window)
+      );
+      await BrowserTestUtils.withNewTab("about:robots", async () => {
+        await SimpleTest.promiseClipboardChange("about:robots", () =>
+          EventUtils.synthesizeKey(
+            consts.unusedKey,
+            consts.unusedOptions,
+            window
+          )
+        );
+      });
+    });
+  } finally {
+    CustomKeys.resetKey("key_copyTabURL");
+  }
 });
 
 // Test that changes apply to other windows.

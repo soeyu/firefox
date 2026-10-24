@@ -1101,15 +1101,18 @@ class LocalInclude(ContextDerived):
 
 
 class PerSourceFlag(ContextDerived):
-    """Describes compiler flags specified for individual source files."""
+    """Describes compiler flags and dependencies specified for individual source
+    files."""
 
-    __slots__ = ("file_name", "flags")
+    __slots__ = ("path", "file_name", "flags", "object_deps")
 
-    def __init__(self, context, file_name, flags):
+    def __init__(self, context, path, flags, object_deps=()):
         ContextDerived.__init__(self, context)
 
-        self.file_name = file_name
+        self.path = path
+        self.file_name = path.full_path
         self.flags = flags
+        self.object_deps = object_deps
 
 
 class JARManifest(ContextDerived):
@@ -1153,6 +1156,17 @@ class Sources(BaseSources):
         BaseSources.__init__(
             self, context, static_files, generated_files, canonical_suffix
         )
+
+
+class Headers(ContextDerived):
+    """Represents headers to be handled during the build."""
+
+    def __init__(self, context, static_files, generated_files, canonical_suffix):
+        super().__init__(context)
+        self.static_files = sorted(static_files)
+        self.generated_files = sorted(generated_files)
+        self.files = self.static_files + self.generated_files
+        self.canonical_suffix = canonical_suffix
 
 
 class PgoGenerateOnlySources(BaseSources):
@@ -1429,6 +1443,7 @@ class DeclaredLicenseNotice(ContextDerived):
         "url",
         "paths",
         "subcomponent",
+        "acknowledgement",
     )
 
     def __init__(
@@ -1442,6 +1457,7 @@ class DeclaredLicenseNotice(ContextDerived):
         url=None,
         paths=(),
         subcomponent=False,
+        acknowledgement=None,
     ):
         ContextDerived.__init__(self, context)
         if not title:
@@ -1463,6 +1479,7 @@ class DeclaredLicenseNotice(ContextDerived):
         self.url = url
         self.paths = list(paths)
         self.subcomponent = subcomponent
+        self.acknowledgement = acknowledgement
 
     def asdict(self):
         return {name: getattr(self, name) for name in self.__slots__}
@@ -1576,6 +1593,7 @@ class GeneratedFile(ContextDerived):
                 ".asm",
                 ".c",
                 ".cpp",
+                ".dat",  # ICU data, read by icu_data.S via .incbin
                 ".inc",
                 ".m",
                 ".mm",

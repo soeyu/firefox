@@ -46,12 +46,45 @@ from mozlog.formatters import TestSummaryFormatter
             id="assertion_count_dropped",
         ),
         pytest.param(
-            {"action": "lsan_leak", "frames": []}, False, id="lsan_leak_dropped"
+            {
+                "action": "lsan_leak",
+                "frames": ["Ensure", "nsFoo::Bar"],
+                "kind": "Direct",
+                "bytes": 168,
+                "objects": 1,
+                "scope": "browser.toml",
+                "allowed_match": None,
+            },
+            True,
+            id="lsan_leak_kept",
         ),
         pytest.param(
-            {"action": "lsan_summary", "allocated_bytes": 10},
+            {
+                "action": "lsan_leak",
+                "frames": ["PR_LoadLibrary", "nsFoo::Bar"],
+                "kind": "Direct",
+                "bytes": 64,
+                "objects": 1,
+                "scope": "browser.toml",
+                "allowed_match": "PR_LoadLibrary",
+            },
             False,
-            id="lsan_summary_dropped",
+            id="lsan_leak_allowed_match_dropped",
+        ),
+        pytest.param(
+            {
+                "action": "lsan_summary",
+                "bytes": 488,
+                "allocations": 3,
+                "allowed": False,
+            },
+            True,
+            id="lsan_summary_kept",
+        ),
+        pytest.param(
+            {"action": "lsan_summary", "bytes": 64, "allocations": 1, "allowed": True},
+            False,
+            id="lsan_summary_allowed_dropped",
         ),
         pytest.param(
             {"action": "process_exit", "process": 1234, "exitcode": 0},
@@ -65,6 +98,16 @@ from mozlog.formatters import TestSummaryFormatter
         ),
         pytest.param(
             {"action": "tsan_error", "stack": "race"}, False, id="tsan_error_dropped"
+        ),
+        pytest.param(
+            {"action": "assertion_failure", "kind": "MOZ_ASSERT", "stack": []},
+            False,
+            id="assertion_failure_dropped",
+        ),
+        pytest.param(
+            {"action": "ubsan_error", "kind": "undefined-behavior", "message": "m"},
+            True,
+            id="ubsan_error_kept",
         ),
         pytest.param(
             {"action": "group_start", "name": "manifestA"}, True, id="group_start_kept"
@@ -240,7 +283,6 @@ def test_testsummary_strips_noise_fields():
         "source",
         "extra",
         "tests",
-        "stack",
         "js_source",
         "minidump_path",
         "crashing_thread_stack",
@@ -252,6 +294,7 @@ def test_testsummary_strips_noise_fields():
     assert result["test"] == "xpcom/tests/unit/test_bug476919.js"
     assert result["status"] == "FAIL"
     assert result["expected"] == "PASS"
+    assert result["stack"] == "stack/trace\nlines"
 
 
 def test_testsummary_log_error_keeps_only_level_and_message():
@@ -312,6 +355,64 @@ def test_testsummary_mozleak_total_keeps_the_leak_fields():
     }
 
 
+def test_testsummary_lsan_summary_keeps_the_counts():
+    fmt = TestSummaryFormatter()
+    record = {
+        "action": "lsan_summary",
+        "time": 1791156513865,
+        "thread": "MainThread",
+        "pid": 1652,
+        "source": "mochitest",
+        "bytes": 488,
+        "allocations": 3,
+    }
+    out = fmt(record)
+    result = json.loads(out)
+    assert result == {
+        "action": "lsan_summary",
+        "time": 1791156513865,
+        "bytes": 488,
+        "allocations": 3,
+    }
+
+
+def test_testsummary_lsan_leak_keeps_the_stack():
+    fmt = TestSummaryFormatter()
+    frames = [
+        "Ensure",
+        "mozilla::dom::FileSystemBackgroundRequestHandler::CreateFileSystemManagerChild",
+        "mozilla::dom::FileSystemManager::BeginRequest",
+        "mozilla::dom::fs::FileSystemRequestHandler::GetRootHandle",
+    ]
+    stack = [{"function": "Ensure", "file": "MozPromise.h", "line": 1550}]
+    scope = "browser/components/aiwindow/ui/test/browser/browser_smartwindow.toml"
+    record = {
+        "action": "lsan_leak",
+        "time": 1791156513878,
+        "thread": "MainThread",
+        "pid": 1652,
+        "source": "mochitest",
+        "frames": frames,
+        "kind": "Direct",
+        "bytes": 168,
+        "objects": 1,
+        "stack": stack,
+        "scope": scope,
+    }
+    out = fmt(record)
+    result = json.loads(out)
+    assert result == {
+        "action": "lsan_leak",
+        "time": 1791156513878,
+        "frames": frames,
+        "kind": "Direct",
+        "bytes": 168,
+        "objects": 1,
+        "stack": stack,
+        "scope": scope,
+    }
+
+
 def test_testsummary_crash_keeps_stack():
     fmt = TestSummaryFormatter()
     record = {
@@ -327,6 +428,59 @@ def test_testsummary_crash_keeps_stack():
     assert result["stack"] == "frame1\nframe2"
     assert "thread" not in result
     assert "pid" not in result
+
+
+def test_testsummary_ubsan_error_keeps_stack():
+    fmt = TestSummaryFormatter()
+    stack = [{"function": "incr_ptr_aligned", "file": "ggml-c.c", "line": 7106}]
+    record = {
+        "action": "ubsan_error",
+        "kind": "undefined-behavior",
+        "message": "applying non-zero offset 96 to null pointer",
+        "file": "ggml-c.c",
+        "lineno": 7106,
+        "column": 33,
+        "stack": stack,
+        "thread": "main",
+        "pid": 1234,
+    }
+    result = json.loads(fmt(record))
+    assert result["stack"] == stack
+    assert result["message"] == "applying non-zero offset 96 to null pointer"
+    assert result["column"] == 33
+    assert "thread" not in result
+    assert "pid" not in result
+
+
+def test_testsummary_log_error_keeps_stack():
+    fmt = TestSummaryFormatter()
+    message = (
+        "Unexpected exception NS_ERROR_FAILURE: Component returned failure code:"
+        " 0x80004005 (NS_ERROR_FAILURE) [nsIGIOService.createHandlerAppFromAppId]"
+    )
+    stack = (
+        "promiseStartLegacyDownload@head.js:282:8\n"
+        "test_launch_id@common_test_Download.js:2629:26\n"
+        "@-e:1:1\n"
+    )
+    record = {
+        "action": "log",
+        "time": 1791156063780,
+        "thread": None,
+        "pid": None,
+        "source": "xpcshell/head.js",
+        "level": "ERROR",
+        "message": message,
+        "exc_info": False,
+        "extra": {"source_file": "head.js", "stack": stack},
+        "stack": stack,
+        "test": "toolkit/components/downloads/test/unit/test_DownloadLegacy.js",
+    }
+    result = json.loads(fmt(record))
+    assert result["stack"] == stack
+    assert result["message"] == message
+    for stripped in ("thread", "pid", "source", "extra"):
+        assert stripped not in result
 
 
 def test_testsummary_emits_test_start_and_end_separately():

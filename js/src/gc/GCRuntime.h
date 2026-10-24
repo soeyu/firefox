@@ -610,7 +610,7 @@ class GCRuntime {
   bool isCompactingGc() const { return isCompacting; }
   bool didCompactZones() const { return isCompacting && zonesCompacted; }
 
-  bool areGrayBitsValid() const { return grayBitsValid; }
+  bool areGrayBitsValid() const { return grayBitsInvalid == 0; }
   void setGrayBitsInvalid();
 
   mozilla::TimeStamp lastGCStartTime() const { return lastGCStartTime_; }
@@ -780,9 +780,9 @@ class GCRuntime {
   static void* refillFreeList(JS::Zone* zone, AllocKind thingKind);
   void attemptLastDitchGC();
 
-  // Return the mark color for |sym| in the atom reference state for uncollected
-  // zones, or MarkColor::White if it's not referenced.
-  CellColor isAtomReferencedByUncollectedZone(TenuredCell* atom);
+  // Return whether |sym| is present in the atom reference state for uncollected
+  // zones.
+  bool isAtomReferencedByUncollectedZone(TenuredCell* atom);
   template <typename T>
   void maybeMarkWeaklyHeldAtom(T* atom);
 
@@ -924,6 +924,8 @@ class GCRuntime {
   void traceRuntimeForMajorGC(JSTracer* trc, AutoGCSession& session);
   void traceRuntimeAtoms(JSTracer* trc);
   void traceRuntimeCommon(JSTracer* trc, TraceOrMarkRuntime traceOrMark);
+  void traceIncomingCrossCompartmentEdgesForZoneGC(JSTracer* trc,
+                                                   EdgeSelector whichEdges);
   void traceEmbeddingBlackRoots(JSTracer* trc);
   void traceEmbeddingGrayRoots(JSTracer* trc);
   IncrementalProgress traceEmbeddingGrayRoots(JSTracer* trc,
@@ -1245,7 +1247,9 @@ class GCRuntime {
    * The gray bits can become invalid if UnmarkGray overflows the stack. A
    * full GC will reset this bit, since it fills in all the gray bits.
    */
-  UnprotectedData<bool> grayBitsValid;
+  static constexpr uint32_t GrayBitsInvalid = Bit(0);
+  static constexpr uint32_t GrayBitsInvalidatedInCurrentGC = Bit(1);
+  mozilla::Atomic<uint32_t, mozilla::Relaxed> grayBitsInvalid;
 
   mozilla::Atomic<JS::GCReason, mozilla::ReleaseAcquire> majorGCTriggerReason;
 

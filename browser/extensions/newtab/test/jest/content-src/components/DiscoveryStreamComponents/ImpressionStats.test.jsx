@@ -8,6 +8,7 @@ import {
   ImpressionStats,
   INTERSECTION_RATIO,
 } from "content-src/components/DiscoveryStreamImpressionStats/ImpressionStats";
+import { SpaceActiveContext } from "content-src/lib/SpaceActiveContext";
 
 describe("<ImpressionStats>", () => {
   const SOURCE = "TEST_SOURCE";
@@ -164,7 +165,7 @@ describe("<ImpressionStats>", () => {
     renderImpressionStats({
       dispatch,
       flightId,
-      rows: [{ id: 1, pos: 1, advertiser: "test advertiser" }],
+      rows: [{ id: 1, pos: 1, advertiser_name: "test advertiser" }],
       source: "TOP_SITES",
       IntersectionObserver: buildIntersectionObserver(FullIntersectEntries),
     });
@@ -183,7 +184,7 @@ describe("<ImpressionStats>", () => {
     renderImpressionStats({
       dispatch,
       flightId,
-      rows: [{ id: 1, pos: 1, advertiser: "test advertiser" }],
+      rows: [{ id: 1, pos: 1, advertiser_name: "test advertiser" }],
       source: "TOP_SITES",
       IntersectionObserver: buildIntersectionObserver(FullIntersectEntries),
     });
@@ -197,7 +198,7 @@ describe("<ImpressionStats>", () => {
       type: "impression",
       tile_id: 1,
       source: "newtab",
-      advertiser: "test advertiser",
+      advertiser_name: "test advertiser",
       position: 1,
       attribution: undefined,
     });
@@ -427,6 +428,25 @@ describe("<ImpressionStats>", () => {
     setIsActive(false);
     setIsActive(true);
     ref.current.impressionObserver.callback(FullIntersectEntries);
+
+    expect(impressionCount(dispatch)).toBe(1);
+  });
+
+  it("should send an impression only once its space is active", () => {
+    const dispatch = jest.fn();
+    const element = spaceActive => (
+      <SpaceActiveContext.Provider value={spaceActive}>
+        <ImpressionStats {...DEFAULT_PROPS} dispatch={dispatch}>
+          <InnerEl />
+        </ImpressionStats>
+      </SpaceActiveContext.Provider>
+    );
+    const { rerender } = render(element(false));
+
+    // A peeked space is in view without being seen.
+    expect(impressionCount(dispatch)).toBe(0);
+
+    rerender(element(true));
 
     expect(impressionCount(dispatch)).toBe(1);
   });

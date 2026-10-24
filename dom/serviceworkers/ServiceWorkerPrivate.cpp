@@ -63,6 +63,7 @@
 #include "mozilla/ipc/URIUtils.h"
 #include "mozilla/net/CookieJarSettings.h"
 #include "mozilla/net/CookieService.h"
+#include "mozilla/net/HttpBaseChannel.h"
 #include "mozilla/net/NeckoChannelParams.h"
 #include "nsContentUtils.h"
 #include "nsDebug.h"
@@ -82,6 +83,7 @@
 #include "nsISupportsImpl.h"
 #include "nsISupportsPriority.h"
 #include "nsIURI.h"
+#include "nsIUploadChannel.h"
 #include "nsIUploadChannel2.h"
 #include "nsNetUtil.h"
 #include "nsPrintfCString.h"
@@ -452,8 +454,20 @@ nsresult MaybeStoreStreamForBackgroundThread(nsIInterceptedChannel* aChannel,
 
   if (uploadChannel) {
     nsCOMPtr<nsIInputStream> uploadStream;
-    MOZ_TRY(uploadChannel->CloneUploadStream(&aIPCRequest.bodySize(),
-                                             getter_AddRefs(uploadStream)));
+    RefPtr<net::HttpBaseChannel> httpBase = do_QueryObject(channel);
+    if (httpBase && httpBase->UploadStreamIsStreaming()) {
+      // Transfer streaming uploads to the worker; fallback returns its unread
+      // body instead of replaying a clone. The channel gives up its reference
+      // so that the stream, which serialization may drain and close
+      // It is only restored if the worker returns it.
+      uploadStream = httpBase->TakeUploadStream();
+      // The length is only known once the stream ends.
+      aIPCRequest.bodySize() = -1;
+      aIPCRequest.hasStreamBody() = !!uploadStream;
+    } else {
+      MOZ_TRY(uploadChannel->CloneUploadStream(&aIPCRequest.bodySize(),
+                                               getter_AddRefs(uploadStream)));
+    }
 
     if (uploadStream) {
       Maybe<BodyStreamVariant>& body = aIPCRequest.body();
@@ -802,7 +816,7 @@ nsresult ServiceWorkerPrivate::Initialize() {
 
       cjsData, domain,
       /* isSecureContext */ true,
-      /* clientInfo*/ Some(ipcClientInfo.ToIPC()),
+      /* clientInfo */ ipcClientInfo.ToIPC(),
 
       // The RemoteWorkerData CTOR doesn't allow to set the referrerInfo via
       // already_AddRefed<>. Let's set it to null.
@@ -839,11 +853,9 @@ void ServiceWorkerPrivate::RegenerateClientInfo() {
   // subsequent spawns. mClientInfo itself must not carry policyContainerArgs
   // (see Initialize() comment), so we apply it only to the IPC copy.
   nsILoadInfo::IPAddressSpace ipAddressSpace = nsILoadInfo::Unknown;
-  if (mRemoteWorkerData.clientInfo().isSome()) {
-    ClientInfo current(mRemoteWorkerData.clientInfo().ref());
-    if (const auto& args = current.GetPolicyContainerArgs()) {
-      ipAddressSpace = args->ipAddressSpace();
-    }
+  ClientInfo current(mRemoteWorkerData.clientInfo());
+  if (const auto& args = current.GetPolicyContainerArgs()) {
+    ipAddressSpace = args->ipAddressSpace();
   }
 
   mClientInfo = ClientManager::CreateInfo(
@@ -854,9 +866,9 @@ void ServiceWorkerPrivate::RegenerateClientInfo() {
     mozilla::ipc::PolicyContainerArgs policyContainerArgs;
     policyContainerArgs.ipAddressSpace() = ipAddressSpace;
     ipcClientInfo.SetPolicyContainerArgs(policyContainerArgs);
-    mRemoteWorkerData.clientInfo().ref() = ipcClientInfo.ToIPC();
+    mRemoteWorkerData.clientInfo() = ipcClientInfo.ToIPC();
   } else {
-    mRemoteWorkerData.clientInfo().ref() = mClientInfo.ref().ToIPC();
+    mRemoteWorkerData.clientInfo() = mClientInfo.ref().ToIPC();
   }
 }
 

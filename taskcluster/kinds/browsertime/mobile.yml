@@ -5,8 +5,6 @@
 task-defaults:
     max-run-time: 3600
     suite: raptor
-    variants:
-        - geckoview-no-fission
     run-on-projects: []
     tier:
         by-app:
@@ -103,7 +101,11 @@ task-defaults:
     dependencies:
         by-app:
             fenix:
-                signing-apk: signing-apk-fenix-nightly-simulation
+                by-test-platform:
+                    android-hw.*nightlyasrelease.*:
+                        signing-apk: signing-apk-fenix-nightlyasrelease-simulation
+                    default:
+                        signing-apk: signing-apk-fenix-nightly-simulation
             default: {}
 
 browsertime-tp6m:
@@ -159,15 +161,9 @@ browsertime-tp6m:
         by-app:
             geckoview: []
             fenix:
-                by-variant:
-                    geckoview-no-fission:
-                        by-test-platform:
-                            android-hw-a55.*shippable.*: [trunk-only]
-                            default: []
-                    default:
-                        by-test-platform:
-                            android-hw-a55.*shippable.*: [trunk-only]
-                            default: [mozilla-central]
+                by-test-platform:
+                    android-hw-a55.*shippable.*: [trunk-only]
+                    default: [mozilla-central]
             default: []
 
 browsertime-tp6m-essential:
@@ -465,6 +461,9 @@ browsertime-benchmark-speedometer3-mobile:
         by-app:
             fenix:
                 by-test-platform:
+                    android-hw-a55.*nightlyasrelease.*: [trunk-only]
+                    android-hw-p6.*nightlyasrelease.*: [mozilla-central]
+                    android-hw-s24.*nightlyasrelease.*: [mozilla-central]
                     android-hw-a55.*shippable.*: [trunk-only]
                     android-hw-p6.*shippable.*: [mozilla-central]
                     android-hw-s24.*shippable.*: [mozilla-central]
@@ -602,6 +601,24 @@ browsertime-trr-performance-m:
                     default: []
     tier: 3
     treeherder-symbol: Btime(trrperfm)
+
+browsertime-doh-busy-site-m:
+    raptor:
+        apps: [fenix]
+        run-visual-metrics: false
+        subtests:
+            - busydoh
+    description: Raptor (browsertime) DoH lookup timings while replaying recorded news-site request timelines, mobile
+    limit-platforms:
+        - .*shippable.*
+    max-run-time: 900
+    mozharness:
+        extra-options:
+            - --browsertime-no-ffwindowrecorder
+            - --extra-profiler-run
+    run-on-projects: []
+    tier: 3
+    treeherder-symbol: Btime(dohbusym)
 
 browsertime-hev3-connection-m:
     raptor:

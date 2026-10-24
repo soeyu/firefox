@@ -14,11 +14,14 @@ UNIFIED_SOURCES += [
     "TestConvolutionFilter.cpp",
     "TestCoord.cpp",
     "TestCopyPlane.cpp",
+    "TestFilterNodeSoftware.cpp",
     "TestFontFallback.cpp",
     "TestFontOverlapPrevention.cpp",
     "TestGfxWidgets.cpp",
+    "TestImageAddressableSize.cpp",
     "TestMatrix.cpp",
     "TestMoz2D.cpp",
+    "TestPlanarYCbCrImage.cpp",
     "TestPoint.cpp",
     "TestPolygon.cpp",
     "TestQcms.cpp",
@@ -87,3 +90,10 @@ LOCAL_INCLUDES += [
 ]
 
 FINAL_LIBRARY = "xul-gtest"
+
+SOURCE_HEADERS += [
+    "MockWidget.h",
+    "PolygonTestUtils.h",
+    "TextureHelper.h",
+    "YCbCrTestHelpers.h",
+]

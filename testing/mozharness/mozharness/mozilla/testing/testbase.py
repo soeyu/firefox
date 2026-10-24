@@ -164,6 +164,17 @@ class TestingMixin(
     tests and Talos.
     """
 
+    python_constraints = "requirements-mozbase.txt"
+
+    def query_python_constraints(self):
+        return [
+            os.path.join(
+                self.query_abs_dirs()["abs_test_install_dir"],
+                "config",
+                self.python_constraints,
+            )
+        ]
+
     installer_url = None
     installer_path = None
     binary_path = None
@@ -638,6 +649,8 @@ Did you run with --create-virtualenv? Is mozinstall in virtualenv_modules?"""
         self.mkdir_p(target_dir)
         if not installer_path:
             installer_path = self.installer_path
+        if installer_path.endswith(".dmg"):
+            cmd.append("--no-verify")
         cmd.extend([installer_path, "--destination", target_dir])
         # TODO we'll need some error checking here
         return self.get_output_from_command(

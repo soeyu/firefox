@@ -185,7 +185,12 @@ InternalRequest::InternalRequest(const IPCInternalRequest& aIPCRequest)
 
   if (body) {
     if (body->type() == BodyStreamVariant::TParentToChildStream) {
-      mBodyStream = body->get_ParentToChildStream().get_RemoteLazyInputStream();
+      const auto& stream = body->get_ParentToChildStream();
+      if (stream.type() == ParentToChildStream::TIPCStream) {
+        mBodyStream = DeserializeIPCStream(stream.get_IPCStream());
+      } else {
+        mBodyStream = stream.get_RemoteLazyInputStream();
+      }
     }
     if (body->type() == BodyStreamVariant::TChildToParentStream) {
       mBodyStream =
@@ -356,6 +361,8 @@ RequestDestination InternalRequest::MapContentPolicyTypeToRequestDestination(
     case nsIContentPolicy::TYPE_WEB_IDENTITY:
       return RequestDestination::_empty;
     case nsIContentPolicy::TYPE_WEB_TRANSPORT:
+      return RequestDestination::_empty;
+    case nsIContentPolicy::TYPE_INTERNAL_SPECULATION_RULES:
       return RequestDestination::_empty;
     case nsIContentPolicy::TYPE_INTERNAL_EXTERNAL_RESOURCE:
       return RequestDestination::Image;

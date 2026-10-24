@@ -69,6 +69,16 @@ class SettingsPage(composeRule: AndroidComposeTestRule<HomeActivityIntentTestRul
         )
         builder.register(
             from = pageName,
+            to = "SettingsEnhancedTrackingProtectionPage",
+            steps =
+                listOf(
+                    // "Enhanced Tracking Protection" sits below the fold, so scroll it into view first.
+                    NavigationStep.Swipe(SettingsSelectors.ENHANCED_TRACKING_PROTECTION_BUTTON),
+                    NavigationStep.Click(SettingsSelectors.ENHANCED_TRACKING_PROTECTION_BUTTON),
+                ),
+        )
+        builder.register(
+            from = pageName,
             to = "SettingsPrivateBrowsingPage",
             steps =
                 listOf(
@@ -128,6 +138,15 @@ class SettingsPage(composeRule: AndroidComposeTestRule<HomeActivityIntentTestRul
                     // "Page summaries" sits below the fold in the General section, so scroll it into view first.
                     NavigationStep.Swipe(SettingsSelectors.PAGE_SUMMARIES_BUTTON),
                     NavigationStep.Click(SettingsSelectors.PAGE_SUMMARIES_BUTTON),
+                ),
+        )
+        builder.register(
+            from = pageName,
+            to = "SettingsAiControlsPage",
+            steps =
+                listOf(
+                    NavigationStep.Swipe(SettingsSelectors.AI_CONTROLS_BUTTON),
+                    NavigationStep.Click(SettingsSelectors.AI_CONTROLS_BUTTON),
                 ),
         )
         builder.register(

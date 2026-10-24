@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 /**
- * @import MozButton from "chrome://global/content/elements/moz-button.mjs";
+ * @import { MozButton } from "chrome://global/content/elements/moz-button.mjs";
  * @import { PartialSearchEngine } from "chrome://browser/content/urlbar/SearchEngineStore.mjs"
  * @import { OpenSearchData } from "moz-src:///browser/components/search/OpenSearchManager.sys.mjs"
  * @import { LocalSearchMode } from "chrome://browser/content/urlbar/UrlbarShared.mjs"
@@ -11,20 +11,21 @@
  */
 
 import UrlbarPrefs from "chrome://browser/content/urlbar/UrlbarContentPrefs.mjs";
-import * as UrlbarContentUtils from "chrome://browser/content/urlbar/UrlbarContentUtils.mjs";
+import { UrlbarContentUtils } from "chrome://browser/content/urlbar/UrlbarContentUtils.mjs";
 import { UrlbarShared } from "chrome://browser/content/urlbar/UrlbarShared.mjs";
 
-const lazy = typeof ChromeUtils != "undefined" ? {} : null;
+const { XPCOMUtils } =
+  typeof ChromeUtils == "undefined"
+    ? { XPCOMUtils: null }
+    : ChromeUtils.importESModule("resource://gre/modules/XPCOMUtils.sys.mjs");
 
-if (lazy) {
-  ChromeUtils.defineESModuleGetters(lazy, {
-    CustomizableUI:
-      "moz-src:///browser/components/customizableui/CustomizableUI.sys.mjs",
-    OpenSearchManager:
-      "moz-src:///browser/components/search/OpenSearchManager.sys.mjs",
-    SearchUIUtils: "moz-src:///browser/components/search/SearchUIUtils.sys.mjs",
-  });
-}
+const lazy = XPCOMUtils?.declareLazy({
+  CustomizableUI:
+    "moz-src:///browser/components/customizableui/CustomizableUI.sys.mjs",
+  OpenSearchManager:
+    "moz-src:///browser/components/search/OpenSearchManager.sys.mjs",
+  SearchUIUtils: "moz-src:///browser/components/search/SearchUIUtils.sys.mjs",
+});
 
 /** @type {Localization} */
 let l10n;
@@ -119,25 +120,28 @@ export class SearchModeSwitcher {
       // hovered or pressed.
       this.#button.setAttribute("type", "ghost");
     }
-    // documentGlobal is chrome-only, and this also runs in about:newtab.
-    this.#noWordmarkQuery =
-      // eslint-disable-next-line mozilla/use-documentGlobal
-      input.ownerDocument.defaultView.matchMedia("(prefers-contrast)");
+
+    this.#noWordmarkQuery = window.matchMedia("(prefers-contrast)");
 
     // MozButton and PanelList have to be hooked up via id.
     this.#panelList.id = "searchmode-switcher-panel-list-" + input.sapName;
     this.#button.setAttribute("menuid", this.#panelList.id);
 
-    // In XUL documents, wrap in a XUL panel to make sure it's
+    // In chrome documents, wrap in a XUL panel to make sure it's
     // on top of the overflow panel and catches all keypresses.
-    let doc = this.#panelList.ownerDocument;
-    if (doc.createXULElement) {
-      let panel = doc.createXULElement("panel");
+    if (document.createXULElement) {
+      let panel = document.createXULElement("panel");
       panel.setAttribute("level", "top");
       panel.setAttribute("consumeoutsideclicks", "false");
       panel.classList.add("searchmode-switcher-panel", "toolbar-menupopup");
       this.#panelList.replaceWith(panel);
       panel.appendChild(this.#panelList);
+    }
+
+    if (!UrlbarShared.keywordEnabled(this.#input.sapName)) {
+      // Show the keyword disabled icon immediately. For keyword enabled,
+      // the icon is updated by the input once the engine store is initialized.
+      this.updateSearchIcon();
     }
   }
 
@@ -215,7 +219,7 @@ export class SearchModeSwitcher {
    * Called when the value of the searchMode attribute on UrlbarInput is changed.
    */
   onSearchModeChanged() {
-    if (!this.#input.window || this.#input.window.closed) {
+    if (window.closed) {
       return;
     }
 
@@ -268,7 +272,7 @@ export class SearchModeSwitcher {
       return;
     }
     if (event.type == "hidden") {
-      if (this.#input.document.activeElement == this.#button) {
+      if (document.activeElement == this.#button) {
         // This moves the focus to the urlbar when the popup is closed.
         this.#input.focus();
       }
@@ -387,7 +391,7 @@ export class SearchModeSwitcher {
   }
 
   onSearchEngineUpdate = (modifiedType, _engine) => {
-    if (!this.#input.window || this.#input.window.closed) {
+    if (window.closed) {
       return;
     }
 
@@ -405,7 +409,7 @@ export class SearchModeSwitcher {
    *   The name of the pref relative to `browser.urlbar`.
    */
   onPrefChanged(pref) {
-    if (!this.#input.window || this.#input.window.closed) {
+    if (window.closed) {
       return;
     }
 
@@ -492,7 +496,7 @@ export class SearchModeSwitcher {
         source: selectedEngine?.source || UrlbarShared.RESULT_SOURCE.SEARCH,
         engineName: selectedEngine?.name,
       },
-      this.#input.window.gBrowser.selectedBrowser
+      this.#input.browserWindow?.gBrowser.selectedBrowser
     );
 
     let searchString = this.#getSearchString();
@@ -585,7 +589,7 @@ export class SearchModeSwitcher {
     if (!lazy) {
       throw new Error("addEngine badge code should not be called in content");
     }
-    let browser = this.#input.window.gBrowser?.selectedBrowser;
+    let browser = this.#input.browserWindow?.gBrowser?.selectedBrowser;
     let uri = browser?.currentURI;
     if (!uri) {
       return;
@@ -596,10 +600,13 @@ export class SearchModeSwitcher {
     let apply = count => {
       // The button may have moved on to another page while an async read was
       // in flight.
-      if (browser != this.#input.window.gBrowser?.selectedBrowser) {
+      if (browser != this.#input.browserWindow?.gBrowser?.selectedBrowser) {
         return;
       }
-      let show = count < MAX_ADD_ENGINES_BADGE_SHOWN;
+      // Don't hide already shown badges.
+      let show =
+        this.#countedBadgeFor.get(browser) == spec ||
+        count < MAX_ADD_ENGINES_BADGE_SHOWN;
       this.#button.toggleAttribute("addengines", show);
       if (show) {
         this.#countBadgeShown(browser, spec, count);
@@ -719,9 +726,7 @@ export class SearchModeSwitcher {
    */
   async #setButtonTitle(id, args) {
     let request = ++this.#buttonTitleRequest;
-    let [message] = await this.#input.document.l10n.formatMessages([
-      { id, args },
-    ]);
+    let [message] = await document.l10n.formatMessages([{ id, args }]);
     if (request != this.#buttonTitleRequest) {
       return;
     }
@@ -733,12 +738,6 @@ export class SearchModeSwitcher {
 
   async #getSearchIcon({ searchModeChanged = false }) {
     let searchMode = this.#input.searchMode;
-
-    try {
-      await this.#input.controller.engineStore.init();
-    } catch {
-      // Search service failed but we continue anyways.
-    }
 
     if (!UrlbarShared.keywordEnabled(this.#input.sapName) && !searchMode) {
       return { icon: SearchModeSwitcher.ICON_GLOBE };
@@ -805,6 +804,12 @@ export class SearchModeSwitcher {
 
   async #getDisplayedEngineDetails(searchMode = null) {
     if (!searchMode || searchMode.engineName) {
+      try {
+        await this.#input.controller.engineStore.init();
+      } catch {
+        return { label: null, icon: SearchModeSwitcher.ICON_GLASS };
+      }
+
       let engine = searchMode
         ? this.#input.controller.engineStore.getEngineByName(
             searchMode.engineName
@@ -838,7 +843,6 @@ export class SearchModeSwitcher {
       item.remove();
     }
 
-    let browser = this.#input.window.gBrowser;
     let installedEngineSeparator = this.#panelList.querySelector(
       ".searchmode-switcher-panel-installed-engine-separator"
     );
@@ -859,6 +863,7 @@ export class SearchModeSwitcher {
 
     // Add engines that can be installed. Only a browser window has a page to
     // offer them from.
+    let browser = this.#input.browserWindow?.gBrowser;
     let openSearchEngines = browser
       ? lazy.OpenSearchManager.getInstallableEngines(browser.selectedBrowser)
       : [];
@@ -869,7 +874,7 @@ export class SearchModeSwitcher {
 
     for (let engine of openSearchEngines) {
       let menuitem = this.#createButton(engine.icon);
-      this.#input.document.l10n.setAttributes(
+      document.l10n.setAttributes(
         menuitem,
         "urlbar-searchmode-popup-add-engine",
         {
@@ -928,7 +933,7 @@ export class SearchModeSwitcher {
     let menuitem = this.#createButton(undefined);
     menuitem.classList.add("searchmode-switcher-panel-search-settings-button");
     menuitem.dataset.action = "openpreferences";
-    this.#input.document.l10n.setAttributes(
+    document.l10n.setAttributes(
       menuitem,
       UrlbarPrefs.get("browser.nova.enabled")
         ? "urlbar-searchmode-popup-settings2"
@@ -976,7 +981,11 @@ export class SearchModeSwitcher {
     menuitem.dataset.action = "localsearchmode";
     menuitem.dataset.restrict = mode.restrict;
     this.#addCommandListeners(menuitem);
-    this.#input.document.l10n.setAttributes(menuitem, mode.uiLabel);
+    document.l10n.setAttributes(menuitem, mode.uiLabel);
+    if (mode.keyId) {
+      menuitem.setAttribute("key", mode.keyId);
+      lazy.CustomizableUI.addShortcut(menuitem);
+    }
     return menuitem;
   }
 
@@ -1137,10 +1146,7 @@ export class SearchModeSwitcher {
    */
   #createButton(icon, label) {
     let panelitem = /**@type {PanelItem} */ (
-      this.#input.document.createElementNS(
-        "http://www.w3.org/1999/xhtml",
-        "panel-item"
-      )
+      document.createElement("panel-item")
     );
     if (label) {
       panelitem.textContent = label;
@@ -1177,7 +1183,7 @@ export class SearchModeSwitcher {
     await lazy.SearchUIUtils.addOpenSearchEngine(
       engine.uri,
       engine.icon,
-      this.#input.window.gBrowser.selectedBrowser.browsingContext
+      this.#input.browserWindow.gBrowser.selectedBrowser.browsingContext
     );
   }
 }

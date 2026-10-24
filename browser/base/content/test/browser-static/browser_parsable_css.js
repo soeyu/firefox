@@ -155,13 +155,6 @@ let propNameAllowlist = [
   { propName: "--panel-border-color", isFromDevTools: true },
   { propName: "--panel-box-shadow", isFromDevTools: true },
 
-  // This is a semantic panel design token provided by the design system that
-  // currently has no chrome CSS consumer, so it isn't referenced via var().
-  {
-    propName: "--panel-background-color-dimmed-further",
-    isFromDevTools: false,
-  },
-
   // These variables are set in host CSS but consumed in shadow DOM CSS
   // (content-search-handoff-ui component), which confuses the test.
   { propName: /^--content-search-handoff-ui-/, isFromDevTools: false },
@@ -170,6 +163,10 @@ let propNameAllowlist = [
   // cards and is consumed from JS in firstrun.js (built into a `background`
   // shorthand string), so it isn't referenced via var() in CSS.
   { propName: "--card-icon-bg", isFromDevTools: false },
+
+  // This variable defines the carousel's small layout and is read from JS in
+  // CarouselNav.jsx, so it isn't referenced via var() in CSS.
+  { propName: "--carousel-layout", isFromDevTools: false },
 
   // These variables are used in JS in viewer.mjs (PDF.js).
   {
@@ -265,6 +262,10 @@ let propNameAllowlist = [
   // This property was used in the onboarding set up feature callout checklist.
   // It's currently not referenced in CSS but may be needed for future use.
   { propName: "--fc-icon-success-color", isFromDevTools: false },
+
+  // This property is used by about:addons to control Nova themes previews
+  // UI controls positioning for RTL locales in the bundled preview-nova.svg.
+  { propName: "--theme-preview-rtl-flip", isFromDevTools: false },
 ];
 
 // Add suffix to stylesheets' URI so that we always load them here and

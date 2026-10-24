@@ -136,6 +136,11 @@ struct ParamTraits<mozilla::dom::PrefersReducedMotionOverride>
           mozilla::dom::PrefersReducedMotionOverride> {};
 
 template <>
+struct ParamTraits<mozilla::dom::PrefersContrastOverride>
+    : public mozilla::dom::WebIDLEnumSerializer<
+          mozilla::dom::PrefersContrastOverride> {};
+
+template <>
 struct ParamTraits<mozilla::dom::ExplicitActiveStatus>
     : public ContiguousEnumSerializer<
           mozilla::dom::ExplicitActiveStatus,
@@ -351,6 +356,85 @@ bool BrowsingContext::SameOriginWithTop() {
 }
 
 /* static */
+BrowsingContext::FieldValues BrowsingContext::ComputeInitialFields(
+    WindowContext* aParentWindow, BrowsingContext* aOpener,
+    BrowsingContextGroup* aGroup, Type aType) {
+  BrowsingContext* const parentBC =
+      aParentWindow ? aParentWindow->GetBrowsingContext() : nullptr;
+
+  BrowsingContext* const inherit = parentBC ? parentBC : aOpener;
+
+  FieldValues fields;
+  if (inherit) {
+    fields.Get<IDX_AllowContentRetargeting>() =
+        inherit->GetAllowContentRetargetingOnChildren();
+    fields.Get<IDX_AllowContentRetargetingOnChildren>() =
+        inherit->GetAllowContentRetargetingOnChildren();
+    fields.Get<IDX_DefaultLoadFlags>() = inherit->GetDefaultLoadFlags();
+    fields.Get<IDX_UseGlobalHistory>() = inherit->GetUseGlobalHistory();
+    fields.Get<IDX_AllowJavascript>() = inherit->GetAllowJavascript();
+    fields.Get<IDX_IPAddressSpace>() = inherit->GetIPAddressSpace();
+    fields.Get<IDX_ParentalControlsEnabled>() =
+        inherit->GetParentalControlsEnabled();
+  }
+
+  if (aOpener) {
+    fields.Get<IDX_OpenerId>() = aOpener->Id();
+    fields.Get<IDX_HadOriginalOpener>() = true;
+    fields.Get<IDX_MessageManagerGroup>() =
+        aOpener->Top()->GetMessageManagerGroup();
+
+    if (aType == Type::Chrome && !aParentWindow) {
+      // See SetOpener for why we do this inheritance.
+      fields.Get<IDX_PrefersColorSchemeOverride>() =
+          aOpener->Top()->GetPrefersColorSchemeOverride();
+    }
+  }
+
+  if (aParentWindow) {
+    // Non-toplevel content documents are always embedded within content.
+    fields.Get<IDX_EmbeddedInContentDocument>() = parentBC->IsContent();
+    fields.Get<IDX_BrowserId>() = parentBC->GetBrowserId();
+    fields.Get<IDX_AncestorLoading>() = parentBC->GetAncestorLoading();
+    fields.Get<IDX_FullZoom>() = parentBC->FullZoom();
+    fields.Get<IDX_TextZoom>() = parentBC->TextZoom();
+  } else if (aGroup->IsPotentiallyCrossOriginIsolated()) {
+    // A brand-new toplevel BC in a potentially cross-origin isolated group
+    // starts out with a strict opener policy.
+    fields.Get<IDX_OpenerPolicy>() =
+        nsILoadInfo::OPENER_POLICY_SAME_ORIGIN_EMBEDDER_POLICY_REQUIRE_CORP;
+  }
+
+  fields.Get<IDX_ExplicitActive>() = [&] {
+    if (parentBC || aType == Type::Content) {
+      // Non-root browsing-contexts inherit their status from its parent.
+      // Top-content either gets managed by the top chrome, or gets manually
+      // managed by the front-end (see ManuallyManagesActiveness). In any case
+      // we want to start off as inactive.
+      return ExplicitActiveStatus::None;
+    }
+    // Chrome starts as active.
+    return ExplicitActiveStatus::Active;
+  }();
+
+  // Assume top allows fullscreen for its children unless otherwise stated.
+  // Subframes start with it false unless otherwise noted in SetEmbedderElement.
+  fields.Get<IDX_FullscreenAllowedByOwner>() = !aParentWindow;
+
+  if (!inherit && XRE_IsParentProcess()) {
+    fields.Get<IDX_ParentalControlsEnabled>() =
+        CanonicalBrowsingContext::ShouldEnforceParentalControls();
+  }
+
+  fields.Get<IDX_ShouldDelayMediaFromStart>() =
+      !parentBC && StaticPrefs::media_block_autoplay_until_in_foreground();
+
+  fields.Get<IDX_HistoryID>() = nsID::GenerateUUID();
+
+  return fields;
+}
+
+/* static */
 already_AddRefed<BrowsingContext> BrowsingContext::CreateDetached(
     nsGlobalWindowInner* aParent, BrowsingContext* aOpener,
     BrowsingContextGroup* aSpecificGroup, const nsAString& aName, Type aType,
@@ -373,8 +457,6 @@ already_AddRefed<BrowsingContext> BrowsingContext::CreateDetached(
       aParent ? aParent->GetBrowsingContext() : nullptr;
   RefPtr<WindowContext> parentWC =
       aParent ? aParent->GetWindowContext() : nullptr;
-  BrowsingContext* inherit = parentBC ? parentBC.get() : aOpener;
-
   // Determine which BrowsingContextGroup this context should be created in.
   RefPtr<BrowsingContextGroup> group = aSpecificGroup;
   if (aType == Type::Chrome) {
@@ -384,47 +466,30 @@ already_AddRefed<BrowsingContext> BrowsingContext::CreateDetached(
     group = BrowsingContextGroup::Select(parentWC, aOpener);
   }
 
-  // Configure initial values for synced fields.
-  FieldValues fields;
+  MOZ_DIAGNOSTIC_ASSERT_IF(aOpener, !aParent);
+  MOZ_DIAGNOSTIC_ASSERT_IF(aOpener, aOpener->Group() == group);
+  MOZ_DIAGNOSTIC_ASSERT_IF(aOpener, aOpener->mType == aType);
+  MOZ_DIAGNOSTIC_ASSERT_IF(aParent, parentBC->Group() == group);
+  MOZ_DIAGNOSTIC_ASSERT_IF(aParent, parentBC->mType == aType);
+
+  FieldValues fields = ComputeInitialFields(parentWC, aOpener, group, aType);
   fields.Get<IDX_Name>() = aName;
+  fields.Get<IDX_IsPopupRequested>() = aOptions.isPopupRequested;
+  fields.Get<IDX_TopLevelCreatedByWebContent>() =
+      aOptions.topLevelCreatedByWebContent;
 
-  if (aOpener) {
-    MOZ_DIAGNOSTIC_ASSERT(!aParent,
-                          "new BC with both initial opener and parent");
-    MOZ_DIAGNOSTIC_ASSERT(aOpener->Group() == group);
-    MOZ_DIAGNOSTIC_ASSERT(aOpener->mType == aType);
-    fields.Get<IDX_OpenerId>() = aOpener->Id();
-    fields.Get<IDX_HadOriginalOpener>() = true;
-    fields.Get<IDX_MessageManagerGroup>() =
-        aOpener->Top()->GetMessageManagerGroup();
-
-    if (aType == Type::Chrome && !aParent) {
-      // See SetOpener for why we do this inheritance.
-      fields.Get<IDX_PrefersColorSchemeOverride>() =
-          aOpener->Top()->GetPrefersColorSchemeOverride();
-    }
-  }
-
-  if (aParent) {
-    MOZ_DIAGNOSTIC_ASSERT(parentBC->Group() == group);
-    MOZ_DIAGNOSTIC_ASSERT(parentBC->mType == aType);
-    // Non-toplevel content documents are always embededed within content.
-    fields.Get<IDX_EmbeddedInContentDocument>() =
-        parentBC->mType == Type::Content;
-
+  if (parentWC) {
     // XXX(farre): Can/Should we check aParent->IsLoading() here? (Bug
     // 1608448) Check if the parent was itself loading already
-    auto readystate = aParent->GetDocument()->GetReadyStateEnum();
+    const auto readystate = aParent->GetDocument()->GetReadyStateEnum();
     fields.Get<IDX_AncestorLoading>() =
-        parentBC->GetAncestorLoading() ||
+        fields.Get<IDX_AncestorLoading>() ||
         readystate == Document::ReadyState::READYSTATE_LOADING ||
         readystate == Document::ReadyState::READYSTATE_INTERACTIVE;
+  } else {
+    fields.Get<IDX_BrowserId>() = nsContentUtils::GenerateBrowserId();
   }
 
-  fields.Get<IDX_BrowserId>() =
-      parentBC ? parentBC->GetBrowserId() : nsContentUtils::GenerateBrowserId();
-
-  fields.Get<IDX_OpenerPolicy>() = nsILoadInfo::OPENER_POLICY_UNSAFE_NONE;
   if (aOpener && aOpener->SameOriginWithTop()) {
     // We inherit the opener policy if there is a creator and if the creator's
     // origin is same origin with the creator's top-level origin.
@@ -433,14 +498,14 @@ already_AddRefed<BrowsingContext> BrowsingContext::CreateDetached(
 
     // If we inherit a policy which is potentially cross-origin isolated, we
     // must be in a potentially cross-origin isolated BCG.
-    bool isPotentiallyCrossOriginIsolated =
+    const bool isPotentiallyCrossOriginIsolated =
         fields.Get<IDX_OpenerPolicy>() ==
         nsILoadInfo::OPENER_POLICY_SAME_ORIGIN_EMBEDDER_POLICY_REQUIRE_CORP;
     MOZ_RELEASE_ASSERT(isPotentiallyCrossOriginIsolated ==
                        group->IsPotentiallyCrossOriginIsolated());
   } else if (aOpener) {
     // They are not same origin
-    auto topPolicy = aOpener->Top()->GetOpenerPolicy();
+    const auto topPolicy = aOpener->Top()->GetOpenerPolicy();
     MOZ_RELEASE_ASSERT(
         topPolicy == nsILoadInfo::OPENER_POLICY_UNSAFE_NONE ||
         topPolicy == nsILoadInfo::OPENER_POLICY_SAME_ORIGIN_ALLOW_POPUPS ||
@@ -449,84 +514,11 @@ already_AddRefed<BrowsingContext> BrowsingContext::CreateDetached(
       // Ensure our opener policy is consistent for printing for our top.
       fields.Get<IDX_OpenerPolicy>() = topPolicy;
     }
-  } else if (!aParent && group->IsPotentiallyCrossOriginIsolated()) {
-    // If we're creating a brand-new toplevel BC in a potentially cross-origin
-    // isolated group, it should start out with a strict opener policy.
-    fields.Get<IDX_OpenerPolicy>() =
-        nsILoadInfo::OPENER_POLICY_SAME_ORIGIN_EMBEDDER_POLICY_REQUIRE_CORP;
   }
-
-  fields.Get<IDX_HistoryID>() = nsID::GenerateUUID();
-  fields.Get<IDX_ExplicitActive>() = [&] {
-    if (parentBC || aType == Type::Content) {
-      // Non-root browsing-contexts inherit their status from its parent.
-      // Top-content either gets managed by the top chrome, or gets manually
-      // managed by the front-end (see ManuallyManagesActiveness). In any case
-      // we want to start off as inactive.
-      return ExplicitActiveStatus::None;
-    }
-    // Chrome starts as active.
-    return ExplicitActiveStatus::Active;
-  }();
-
-  fields.Get<IDX_FullZoom>() = parentBC ? parentBC->FullZoom() : 1.0f;
-  fields.Get<IDX_TextZoom>() = parentBC ? parentBC->TextZoom() : 1.0f;
-
-  bool allowContentRetargeting =
-      inherit ? inherit->GetAllowContentRetargetingOnChildren() : true;
-  fields.Get<IDX_AllowContentRetargeting>() = allowContentRetargeting;
-  fields.Get<IDX_AllowContentRetargetingOnChildren>() = allowContentRetargeting;
-
-  // Assume top allows fullscreen for its children unless otherwise stated.
-  // Subframes start with it false unless otherwise noted in SetEmbedderElement.
-  fields.Get<IDX_FullscreenAllowedByOwner>() = !aParent;
-
-  fields.Get<IDX_DefaultLoadFlags>() =
-      inherit ? inherit->GetDefaultLoadFlags() : nsIRequest::LOAD_NORMAL;
-
-  fields.Get<IDX_OrientationLock>() = mozilla::hal::ScreenOrientation::None;
-
-  fields.Get<IDX_UseGlobalHistory>() =
-      inherit ? inherit->GetUseGlobalHistory() : false;
-
-  fields.Get<IDX_UseErrorPages>() = true;
-
-  fields.Get<IDX_TouchEventsOverrideInternal>() = TouchEventsOverride::None;
-
-  fields.Get<IDX_AllowJavascript>() =
-      inherit ? inherit->GetAllowJavascript() : true;
-
-  fields.Get<IDX_IPAddressSpace>() = inherit
-                                         ? inherit->GetIPAddressSpace()
-                                         : nsILoadInfo::IPAddressSpace::Unknown;
-
-  bool parentalControlsEnabled;
-  if (inherit) {
-    parentalControlsEnabled = inherit->GetParentalControlsEnabled();
-  } else if (XRE_IsParentProcess()) {
-    parentalControlsEnabled =
-        CanonicalBrowsingContext::ShouldEnforceParentalControls();
-  } else {
-    parentalControlsEnabled = false;
-  }
-
-  fields.Get<IDX_ParentalControlsEnabled>() = parentalControlsEnabled;
-
-  fields.Get<IDX_IsPopupRequested>() = aOptions.isPopupRequested;
-
-  fields.Get<IDX_TopLevelCreatedByWebContent>() =
-      aOptions.topLevelCreatedByWebContent;
 
   if (aOptions.isForPrinting && !parentBC) {
     fields.Get<IDX_IsPrinting>() = true;
   }
-
-  if (!parentBC) {
-    fields.Get<IDX_ShouldDelayMediaFromStart>() =
-        StaticPrefs::media_block_autoplay_until_in_foreground();
-  }
-
-  fields.Get<IDX_AnimationsPlayBackRateMultiplier>() = 1.0;
 
   RefPtr<BrowsingContext> context;
   if (XRE_IsParentProcess()) {
@@ -542,7 +534,7 @@ already_AddRefed<BrowsingContext> BrowsingContext::CreateDetached(
   context->mWindowless = aOptions.windowless;
   context->mEmbeddedByThisProcess = XRE_IsParentProcess() || aParent;
   context->mCreatedDynamically = aOptions.createdDynamically;
-  if (inherit) {
+  if (BrowsingContext* inherit = parentBC ? parentBC.get() : aOpener) {
     context->mPrivateBrowsingId = inherit->mPrivateBrowsingId;
     context->mUseRemoteTabs = inherit->mUseRemoteTabs;
     context->mUseRemoteSubframes = inherit->mUseRemoteSubframes;
@@ -603,6 +595,28 @@ mozilla::ipc::IPCResult BrowsingContext::CreateFromIPC(
 
   RefPtr<WindowContext> parent = aInit.GetParent();
 
+  // In the parent process the initializer was authored by a content process.
+  // Start from the values this process derives for itself and reconcile the
+  // initializer's values against them below.
+  FieldValues fields;
+  if (XRE_IsContentProcess()) {
+    fields = std::move(aInit.mFields);
+  } else {
+    RefPtr<BrowsingContext> opener;
+    if (aInit.GetOpenerId() != 0) {
+      opener = BrowsingContext::Get(aInit.GetOpenerId());
+      MOZ_DIAGNOSTIC_ASSERT(opener && opener->Group() == aGroup,
+                            "validated by RecvCreateBrowsingContext");
+    }
+    fields = ComputeInitialFields(parent, opener, aGroup, Type::Content);
+    if (!parent) {
+      // The only content process path creating a toplevel context is
+      // ContentChild::ProvideWindowCommon.
+      fields.Get<IDX_TopLevelCreatedByWebContent>() = true;
+      fields.Get<IDX_PendingInitialization>() = true;
+    }
+  }
+
   RefPtr<BrowsingContext> context;
   if (XRE_IsParentProcess()) {
     // If the new BrowsingContext has a parent, it is a sub-frame embedded in
@@ -611,10 +625,22 @@ mozilla::ipc::IPCResult BrowsingContext::CreateFromIPC(
     uint64_t embedderProcessId = (aInit.mWindowless || parent) ? originId : 0;
     context = new CanonicalBrowsingContext(parent, aGroup, aInit.mId, originId,
                                            embedderProcessId, Type::Content,
-                                           std::move(aInit.mFields));
+                                           std::move(fields));
   } else {
     context = new BrowsingContext(parent, aGroup, aInit.mId, Type::Content,
-                                  std::move(aInit.mFields));
+                                  std::move(fields));
+  }
+
+  Transaction correction;
+  if (XRE_IsParentProcess()) {
+    MOZ_DIAGNOSTIC_ASSERT(!context->EverAttached());
+    Transaction::ReconcileInitialFields(context, std::move(aInit.mFields),
+                                        aOriginProcess, correction);
+    // A toplevel's BrowserId is generated by the creating process; there is no
+    // derived value to fall back to if it was refused.
+    if (!parent && context->GetBrowserId() == 0) {
+      return IPC_FAIL(aOriginProcess, "Invalid BrowserId for new toplevel");
+    }
   }
 
   context->mWindowless = aInit.mWindowless;
@@ -647,6 +673,10 @@ mozilla::ipc::IPCResult BrowsingContext::CreateFromIPC(
   Register(context);
 
   context->Attach(/* aFromIPC */ true, aOriginProcess);
+
+  if (XRE_IsParentProcess()) {
+    correction.SendCorrection(context, aOriginProcess);
+  }
   return IPC_OK();
 }
 
@@ -1281,9 +1311,22 @@ void BrowsingContext::SetIsEnteringBFCache(bool aIsEnteringBFCache) {
   mIsEnteringBFCache = aIsEnteringBFCache;
 }
 
-void BrowsingContext::DeactivateDocuments() {
+// https://html.spec.whatwg.org/#deactivate-a-document-for-a-cross-document-navigation
+void BrowsingContext::DeactivateDocuments(
+    const SessionHistoryInfo* aPageSwapTargetInfo,
+    NavigationType aNavigationType, bool aForUnload) {
   MOZ_RELEASE_ASSERT(mozilla::BFCacheInParent());
   MOZ_DIAGNOSTIC_ASSERT(IsTop());
+
+  if (aForUnload) {
+    // The old document can't enter BFCache. Only fire pageswap, since
+    // Destroy() unloads the document right after.
+    if (mDocShell) {
+      nsDocShell::Cast(mDocShell)->MaybeFirePageSwapOnDeactivate(
+          aPageSwapTargetInfo, aNavigationType);
+    }
+    return;
+  }
 
   if (XRE_IsContentProcess() && mDocShell) {
     nsDocShell::Cast(mDocShell)->MaybeDisconnectChildListenersOnPageHide();
@@ -1294,7 +1337,11 @@ void BrowsingContext::DeactivateDocuments() {
     aContext->SetIsEnteringBFCache(/* aIsEnteringBFCache */ true);
 
     if (shell) {
-      nsDocShell::Cast(shell)->FirePageHideShowNonRecursive(false);
+      // Only the top document fires pageswap.
+      const bool isTop = aContext == this;
+      nsDocShell::Cast(shell)->FirePageHideShowNonRecursive(
+          false, isTop ? aPageSwapTargetInfo : nullptr,
+          isTop ? aNavigationType : NavigationType::Push);
     }
   });
 
@@ -3161,15 +3208,6 @@ already_AddRefed<WindowContext> BrowsingContext::IPCInitializer::GetParent() {
   return parent.forget();
 }
 
-already_AddRefed<BrowsingContext> BrowsingContext::IPCInitializer::GetOpener() {
-  RefPtr<BrowsingContext> opener;
-  if (GetOpenerId() != 0) {
-    opener = BrowsingContext::Get(GetOpenerId());
-    MOZ_RELEASE_ASSERT(opener);
-  }
-  return opener.forget();
-}
-
 void BrowsingContext::StartDelayedAutoplayMediaComponents() {
   if (!mDocShell) {
     return;
@@ -3191,8 +3229,8 @@ nsresult BrowsingContext::ResetGVAutoplayRequestStatus() {
 }
 
 template <typename Callback>
-void BrowsingContext::WalkPresContexts(Callback&& aCallback) {
-  PreOrderWalk([&](BrowsingContext* aContext) {
+static void WalkPresContexts(BrowsingContext* aTop, Callback&& aCallback) {
+  aTop->PreOrderWalk([&](BrowsingContext* aContext) {
     if (nsIDocShell* shell = aContext->GetDocShell()) {
       if (RefPtr pc = shell->GetPresContext()) {
         aCallback(pc.get());
@@ -3201,8 +3239,19 @@ void BrowsingContext::WalkPresContexts(Callback&& aCallback) {
   });
 }
 
+static void MediaFeatureValuesChanged(BrowsingContext* aTop,
+                                      MediaFeatureChangeReason aReason) {
+  WalkPresContexts(aTop, [aReason](nsPresContext* aPc) {
+    aPc->MediaFeatureValuesChanged(
+        {aReason},
+        // We're already iterating through sub documents, so we don't need to
+        // propagate the change again.
+        MediaFeatureChangePropagation::JustThisDocument);
+  });
+}
+
 void BrowsingContext::PresContextAffectingFieldChanged() {
-  WalkPresContexts([&](nsPresContext* aPc) {
+  WalkPresContexts(this, [](nsPresContext* aPc) {
     aPc->RecomputeBrowsingContextDependentData();
   });
 }
@@ -3304,7 +3353,7 @@ bool BrowsingContext::CanSet(FieldIndex<IDX_ControlsDocumentPiP>, bool,
   const bool setByOwner =
       aSource ? Canonical()->IsOwnedByProcess(aSource->ChildID())
               : IsInProcess();
-  return IsTopContent() && setByOwner;
+  return IsContent() && setByOwner;
 }
 
 void BrowsingContext::DidSet(FieldIndex<IDX_ControlsDocumentPiP>,
@@ -3350,12 +3399,6 @@ void BrowsingContext::DidSet(FieldIndex<IDX_ControlsDocumentPiP>,
   }
 }
 
-bool BrowsingContext::CanSet(FieldIndex<IDX_ExplicitActive>,
-                             const ExplicitActiveStatus&,
-                             ContentParent* aSource) {
-  return XRE_IsParentProcess() && IsTop() && !aSource;
-}
-
 void BrowsingContext::DidSet(FieldIndex<IDX_ExplicitActive>,
                              ExplicitActiveStatus aOldValue) {
   MOZ_ASSERT(IsTop());
@@ -3376,11 +3419,6 @@ void BrowsingContext::DidSet(FieldIndex<IDX_ExplicitActive>,
   }
 
   ActivenessChanged(isActive);
-}
-
-bool BrowsingContext::CanSet(FieldIndex<IDX_InRDMPane>, const bool&,
-                             ContentParent* aSource) {
-  return XRE_IsParentProcess() && IsTop() && !aSource;
 }
 
 void BrowsingContext::DidSet(FieldIndex<IDX_InRDMPane>, bool aOldValue) {
@@ -3448,14 +3486,10 @@ void BrowsingContext::DidSet(FieldIndex<IDX_ForceDesktopViewport>,
   PresContextAffectingFieldChanged();
   if (nsIDocShell* shell = GetDocShell()) {
     if (RefPtr ps = shell->GetPresShell()) {
-      ps->MaybeRecreateMobileViewportManager(/* aAfterInitialization= */ true);
+      ps->MaybeRecreateMobileViewportManager(
+          PresShell::MobileViewportManagerUpdate::ManagerTypeMayChange);
     }
   }
-}
-
-bool BrowsingContext::CanSet(FieldIndex<IDX_PageAwakeRequestCount>,
-                             uint32_t aNewValue, ContentParent* aSource) {
-  return IsTop() && XRE_IsParentProcess() && !aSource;
 }
 
 void BrowsingContext::DidSet(FieldIndex<IDX_PageAwakeRequestCount>,
@@ -3464,12 +3498,6 @@ void BrowsingContext::DidSet(FieldIndex<IDX_PageAwakeRequestCount>,
     return;
   }
   Group()->UpdateToplevelsSuspendedIfNeeded();
-}
-
-auto BrowsingContext::CanSet(FieldIndex<IDX_AllowJavascript>, bool aValue,
-                             ContentParent* aSource) -> CanSetResult {
-  return XRE_IsParentProcess() && !aSource ? CanSetResult::Allow
-                                           : CanSetResult::Deny;
 }
 
 void BrowsingContext::DidSet(FieldIndex<IDX_AllowJavascript>, bool aOldValue) {
@@ -3508,23 +3536,13 @@ bool BrowsingContext::InactiveForSuspend() const {
   return !IsActive() && GetPageAwakeRequestCount() == 0;
 }
 
-bool BrowsingContext::CanSet(FieldIndex<IDX_TouchEventsOverrideInternal>,
-                             dom::TouchEventsOverride, ContentParent* aSource) {
-  return XRE_IsParentProcess() && !aSource;
-}
-
 void BrowsingContext::DidSet(FieldIndex<IDX_TouchEventsOverrideInternal>,
                              dom::TouchEventsOverride&& aOldValue) {
   if (GetTouchEventsOverrideInternal() == aOldValue) {
     return;
   }
-  WalkPresContexts([&](nsPresContext* aPc) {
-    aPc->MediaFeatureValuesChanged(
-        {MediaFeatureChangeReason::SystemMetricsChange},
-        // We're already iterating through sub documents, so we don't need to
-        // propagate the change again.
-        MediaFeatureChangePropagation::JustThisDocument);
-  });
+  MediaFeatureValuesChanged(this,
+                            MediaFeatureChangeReason::SystemMetricsChange);
 }
 
 void BrowsingContext::DidSet(FieldIndex<IDX_EmbedderColorSchemes>,
@@ -3567,14 +3585,16 @@ void BrowsingContext::DidSet(FieldIndex<IDX_PrefersReducedMotionOverride>,
   if (PrefersReducedMotionOverride() == aOldValue) {
     return;
   }
+  MediaFeatureValuesChanged(this, MediaFeatureChangeReason::PreferenceChange);
+}
 
-  WalkPresContexts([&](nsPresContext* aPc) {
-    aPc->MediaFeatureValuesChanged(
-        {MediaFeatureChangeReason::PreferenceChange},
-        // We're already iterating through sub documents, so we don't need to
-        // propagate the change again.
-        MediaFeatureChangePropagation::JustThisDocument);
-  });
+void BrowsingContext::DidSet(FieldIndex<IDX_PrefersContrastOverride>,
+                             dom::PrefersContrastOverride aOldValue) {
+  MOZ_ASSERT(IsTop());
+  if (PrefersContrastOverride() == aOldValue) {
+    return;
+  }
+  MediaFeatureValuesChanged(this, MediaFeatureChangeReason::PreferenceChange);
 }
 
 void BrowsingContext::DidSet(FieldIndex<IDX_AnimationsPlayBackRateMultiplier>,
@@ -3642,17 +3662,9 @@ void BrowsingContext::DidSet(FieldIndex<IDX_DisplayMode>,
   if (GetDisplayMode() == aOldValue) {
     return;
   }
-
-  WalkPresContexts([&](nsPresContext* aPc) {
-    aPc->MediaFeatureValuesChanged(
-        {MediaFeatureChangeReason::DisplayModeChange},
-        // We're already iterating through sub documents, so we don't need
-        // to propagate the change again.
-        //
-        // Images and other resources don't change their display-mode
-        // evaluation, display-mode is a property of the browsing context.
-        MediaFeatureChangePropagation::JustThisDocument);
-  });
+  // Images and other resources don't change their display-mode evaluation,
+  // display-mode is a property of the browsing context.
+  MediaFeatureValuesChanged(this, MediaFeatureChangeReason::DisplayModeChange);
 }
 
 void BrowsingContext::DidSet(FieldIndex<IDX_Muted>) {
@@ -3668,21 +3680,6 @@ void BrowsingContext::DidSet(FieldIndex<IDX_Muted>) {
   });
 }
 
-bool BrowsingContext::CanSet(FieldIndex<IDX_IsAppTab>, const bool& aValue,
-                             ContentParent* aSource) {
-  return XRE_IsParentProcess() && !aSource && IsTop();
-}
-
-bool BrowsingContext::CanSet(FieldIndex<IDX_HasSiblings>, const bool& aValue,
-                             ContentParent* aSource) {
-  return XRE_IsParentProcess() && !aSource && IsTop();
-}
-
-bool BrowsingContext::CanSet(FieldIndex<IDX_ShouldDelayMediaFromStart>,
-                             const bool& aValue, ContentParent* aSource) {
-  return IsTop();
-}
-
 void BrowsingContext::DidSet(FieldIndex<IDX_ShouldDelayMediaFromStart>,
                              bool aOldValue) {
   MOZ_ASSERT(IsTop(), "Set attribute on non top-level context!");
@@ -3696,11 +3693,6 @@ void BrowsingContext::DidSet(FieldIndex<IDX_ShouldDelayMediaFromStart>,
       }
     });
   }
-}
-
-bool BrowsingContext::CanSet(FieldIndex<IDX_OverrideDPPX>, const float& aValue,
-                             ContentParent* aSource) {
-  return XRE_IsParentProcess() && !aSource && IsTop();
 }
 
 void BrowsingContext::DidSet(FieldIndex<IDX_OverrideDPPX>, float aOldValue) {
@@ -3778,12 +3770,6 @@ auto BrowsingContext::LegacyRevertIfNotOwningOrParentProcess(
   return CanSetResult::Allow;
 }
 
-bool BrowsingContext::CanSet(FieldIndex<IDX_IsActiveBrowserWindowInternal>,
-                             const bool& aValue, ContentParent* aSource) {
-  // Should only be set in the parent process.
-  return XRE_IsParentProcess() && !aSource && IsTop();
-}
-
 void BrowsingContext::DidSet(FieldIndex<IDX_IsActiveBrowserWindowInternal>,
                              bool aOldValue) {
   bool isActivateEvent = GetIsActiveBrowserWindowInternal();
@@ -3844,17 +3830,6 @@ auto BrowsingContext::CanSet(FieldIndex<IDX_AllowContentRetargetingOnChildren>,
   return LegacyRevertIfNotOwningOrParentProcess(aSource);
 }
 
-bool BrowsingContext::CanSet(FieldIndex<IDX_FullscreenAllowedByOwner>,
-                             const bool& aAllowed, ContentParent* aSource) {
-  return CheckOnlyEmbedderCanSet(aSource);
-}
-
-bool BrowsingContext::CanSet(FieldIndex<IDX_UseErrorPages>,
-                             const bool& aUseErrorPages,
-                             ContentParent* aSource) {
-  return CheckOnlyEmbedderCanSet(aSource);
-}
-
 TouchEventsOverride BrowsingContext::TouchEventsOverride() const {
   for (const auto* bc = this; bc; bc = bc->GetParent()) {
     auto tev = bc->GetTouchEventsOverrideInternal();
@@ -3881,7 +3856,7 @@ bool BrowsingContext::CanSet(FieldIndex<IDX_WatchedByDevToolsInternal>,
   // Can only be enabled or disabled from the Parent Process and only on top
   // level BC. Also can only be enabled when at least one DevTools is currently
   // active.
-  return XRE_IsParentProcess() && !aSource && IsTop() &&
+  return XRE_IsParentProcess() && !aSource &&
          (!aWatchedByDevTools || ChromeUtils::IsDevToolsOpened());
 }
 void BrowsingContext::SetWatchedByDevTools(bool aWatchedByDevTools,
@@ -3921,7 +3896,7 @@ void BrowsingContext::SetGeolocationServiceOverride(
   if (aGeolocationOverride.WasPassed()) {
     if (!mGeolocationServiceOverride) {
       mGeolocationServiceOverride = MakeRefPtr<GeolocationService>();
-      mGeolocationServiceOverride->Init();
+      mGeolocationServiceOverride->Init(/* aIsOverride = */ true);
     }
     mGeolocationServiceOverride->Update(aGeolocationOverride.Value());
   } else if (RefPtr<GeolocationService> serviceOverride =
@@ -3987,31 +3962,15 @@ void BrowsingContext::DidSet(FieldIndex<IDX_DefaultLoadFlags>) {
   }
 }
 
-bool BrowsingContext::CanSet(FieldIndex<IDX_UseGlobalHistory>,
-                             const bool& aUseGlobalHistory,
-                             ContentParent* aSource) {
-  // Should only be set in the parent process.
-  //  return XRE_IsParentProcess() && !aSource;
-  return true;
-}
-
 auto BrowsingContext::CanSet(FieldIndex<IDX_UserAgentOverride>,
                              const nsCString& aUserAgent,
                              ContentParent* aSource) -> CanSetResult {
-  if (!IsTop()) {
-    return CanSetResult::Deny;
-  }
-
   return LegacyRevertIfNotOwningOrParentProcess(aSource);
 }
 
 auto BrowsingContext::CanSet(FieldIndex<IDX_PlatformOverride>,
                              const nsString& aPlatform, ContentParent* aSource)
     -> CanSetResult {
-  if (!IsTop()) {
-    return CanSetResult::Deny;
-  }
-
   return LegacyRevertIfNotOwningOrParentProcess(aSource);
 }
 
@@ -4021,11 +3980,6 @@ bool BrowsingContext::CheckOnlyEmbedderCanSet(ContentParent* aSource) {
     return Canonical()->IsEmbeddedInProcess(childId);
   }
   return mEmbeddedByThisProcess;
-}
-
-bool BrowsingContext::CanSet(FieldIndex<IDX_EmbedderElementType>,
-                             const Maybe<nsString>&, ContentParent* aSource) {
-  return CheckOnlyEmbedderCanSet(aSource);
 }
 
 auto BrowsingContext::CanSet(FieldIndex<IDX_CurrentInnerWindowId>,
@@ -4056,11 +4010,6 @@ auto BrowsingContext::CanSet(FieldIndex<IDX_CurrentInnerWindowId>,
   return CanSetResult::Allow;
 }
 
-bool BrowsingContext::CanSet(FieldIndex<IDX_ParentInitiatedNavigationEpoch>,
-                             const uint64_t& aValue, ContentParent* aSource) {
-  return XRE_IsParentProcess() && !aSource;
-}
-
 void BrowsingContext::DidSet(FieldIndex<IDX_CurrentInnerWindowId>) {
   RefPtr<WindowContext> prevWindowContext = mCurrentWindowContext.forget();
   mCurrentWindowContext = WindowContext::GetById(GetCurrentInnerWindowId());
@@ -4088,6 +4037,10 @@ void BrowsingContext::DidSet(FieldIndex<IDX_CurrentInnerWindowId>) {
         Canonical()->MaybeScheduleSessionStoreUpdate();
         mCurrentWindowContext->Canonical()->DidBecomeCurrentWindowGlobal(true);
       }
+      if (prevWindowContext && mCurrentWindowContext) {
+        Canonical()->MaybeRebindActiveEntry(prevWindowContext->Canonical(),
+                                            mCurrentWindowContext->Canonical());
+      }
     }
     BrowserParent::UpdateFocusFromBrowsingContext();
   }
@@ -4104,20 +4057,6 @@ void BrowsingContext::DidSet(FieldIndex<IDX_IsPopupSpam>) {
   if (GetIsPopupSpam()) {
     PopupBlocker::RegisterOpenPopupSpam();
   }
-}
-
-bool BrowsingContext::CanSet(FieldIndex<IDX_MessageManagerGroup>,
-                             const nsString& aMessageManagerGroup,
-                             ContentParent* aSource) {
-  // Should only be set in the parent process on toplevel.
-  return XRE_IsParentProcess() && !aSource && IsTopContent();
-}
-
-bool BrowsingContext::CanSet(
-    FieldIndex<IDX_OrientationLock>,
-    const mozilla::hal::ScreenOrientation& aOrientationLock,
-    ContentParent* aSource) {
-  return IsTop();
 }
 
 bool BrowsingContext::IsLoading() {
@@ -4324,13 +4263,6 @@ void BrowsingContext::DidSet(FieldIndex<IDX_HasSessionHistory>,
   }
 }
 
-bool BrowsingContext::CanSet(
-    FieldIndex<IDX_TargetTopLevelLinkClicksToBlankInternal>,
-    const bool& aTargetTopLevelLinkClicksToBlankInternal,
-    ContentParent* aSource) {
-  return XRE_IsParentProcess() && !aSource && IsTop();
-}
-
 bool BrowsingContext::CanSet(FieldIndex<IDX_BrowserId>, const uint64_t& aValue,
                              ContentParent* aSource) {
   if (XRE_IsParentProcess() && !aSource) {
@@ -4341,36 +4273,18 @@ bool BrowsingContext::CanSet(FieldIndex<IDX_BrowserId>, const uint64_t& aValue,
     return false;
   }
 
-  return GetBrowserId() == 0 && Children().IsEmpty();
+  if (GetBrowserId() != 0 || !Children().IsEmpty()) {
+    return false;
+  }
+  RefPtr<BrowsingContext> existing = GetCurrentTopByBrowserId(aValue);
+  return !existing;
 }
 
 bool BrowsingContext::CanSet(FieldIndex<IDX_PendingInitialization>,
                              bool aNewValue, ContentParent* aSource) {
   // Can only be cleared from `true` to `false`, and should only ever be set on
   // the toplevel BrowsingContext.
-  return IsTop() && GetPendingInitialization() && !aNewValue;
-}
-
-bool BrowsingContext::CanSet(FieldIndex<IDX_TopLevelCreatedByWebContent>,
-                             const bool& aNewValue, ContentParent* aSource) {
-  // Should only be set after creation in the parent process.
-  return XRE_IsParentProcess() && !aSource && IsTop();
-}
-
-bool BrowsingContext::CanSet(FieldIndex<IDX_HasRestoreData>, bool aNewValue,
-                             ContentParent* aSource) {
-  return IsTop();
-}
-
-bool BrowsingContext::CanSet(FieldIndex<IDX_IsUnderHiddenEmbedderElement>,
-                             const bool& aIsUnderHiddenEmbedderElement,
-                             ContentParent* aSource) {
-  return true;
-}
-
-bool BrowsingContext::CanSet(FieldIndex<IDX_ForceOffline>, bool aNewValue,
-                             ContentParent* aSource) {
-  return XRE_IsParentProcess() && !aSource;
+  return GetPendingInitialization() && !aNewValue;
 }
 
 void BrowsingContext::DidSet(FieldIndex<IDX_IsUnderHiddenEmbedderElement>,
@@ -4561,8 +4475,8 @@ void BrowsingContext::SetActiveSessionHistoryEntry(
       }
     }
     ContentChild::GetSingleton()->SendSetActiveSessionHistoryEntry(
-        this, aPreviousScrollPos, *aInfo, aLoadType, aUpdatedCacheKey,
-        changeID);
+        GetCurrentWindowContext(), aPreviousScrollPos, *aInfo, aLoadType,
+        aUpdatedCacheKey, changeID, aInfo->NewSharedStateRequest());
   } else {
     Canonical()->SetActiveSessionHistoryEntry(
         aPreviousScrollPos, aInfo, aLoadType, aUpdatedCacheKey, nsID());
@@ -4572,8 +4486,8 @@ void BrowsingContext::SetActiveSessionHistoryEntry(
 void BrowsingContext::ReplaceActiveSessionHistoryEntry(
     SessionHistoryInfo* aInfo) {
   if (XRE_IsContentProcess()) {
-    ContentChild::GetSingleton()->SendReplaceActiveSessionHistoryEntry(this,
-                                                                       *aInfo);
+    ContentChild::GetSingleton()->SendReplaceActiveSessionHistoryEntry(
+        GetCurrentWindowContext(), *aInfo, aInfo->NewSharedStateRequest());
   } else {
     Canonical()->ReplaceActiveSessionHistoryEntry(aInfo);
   }

@@ -4,50 +4,14 @@
 
 "use strict";
 
-// MiniWindowUtils.computeTransform and computeWindowRectForScreen are pure math
-// over a crop rect, so they are tested here rather than in a browser test.
+// MiniWindowUtils.computeWindowRectForScreen and resolveOverlapConflicts are
+// pure math over rects, so they are tested here rather than in a browser test.
 // computeWindowRect itself needs a real window and a real screen, and stays
 // covered by browser/browser_framing.js and browser/browser_placement.js.
 
 const { MiniWindowUtils } = ChromeUtils.importESModule(
   "moz-src:///browser/components/miniwindow/MiniWindowUtils.sys.mjs"
 );
-
-add_task(async function test_compute_transform() {
-  let { scale, tx, ty } = MiniWindowUtils.computeTransform(1000, {
-    left: 50,
-    top: 20,
-    width: 500,
-    height: 300,
-  });
-  Assert.equal(scale, 2, "computeTransform scales to fill the window width");
-  Assert.equal(tx, -50, "computeTransform translates by -crop.left");
-  Assert.equal(ty, -20, "computeTransform translates by -crop.top");
-
-  let identity = MiniWindowUtils.computeTransform(800, {
-    left: 0,
-    top: 0,
-    width: 800,
-    height: 600,
-  });
-  Assert.equal(identity.scale, 1, "identity scale for a whole-viewport crop");
-  Assert.equal(identity.tx, 0, "identity tx");
-  Assert.equal(identity.ty, 0, "identity ty");
-
-  // fullZoom folds into scale + translate: crop CSS px map to zoom chrome px.
-  let zoomed = MiniWindowUtils.computeTransform(
-    1000,
-    { left: 50, top: 20, width: 500, height: 300 },
-    2
-  );
-  Assert.equal(
-    zoomed.scale,
-    1,
-    "zoom halves the fill scale (1000 / (500 * 2))"
-  );
-  Assert.equal(zoomed.tx, -100, "zoom scales translateX by fullZoom");
-  Assert.equal(zoomed.ty, -40, "zoom scales translateY by fullZoom");
-});
 
 // A 1512x945 Retina Mac avail rect, below the menu bar. defaultCSSScaleFactor
 // and contentsScaleFactor are both 2 there, so desktop px and CSS px coincide.
@@ -161,5 +125,97 @@ add_task(async function test_full_tab_default_size() {
     MiniWindowUtils.fullTabSize(),
     { width: 640, height: 400 },
     "a full-tab mini window opens at 640x400"
+  );
+});
+
+// A 1000x1000 screen keeps the candidate arithmetic easy to follow by hand.
+const SCREEN = { left: 0, top: 0, width: 1000, height: 1000 };
+const CORNER = { left: 800, top: 800, width: 200, height: 200 };
+
+add_task(async function test_overlap_no_obstacles() {
+  Assert.deepEqual(
+    MiniWindowUtils.resolveOverlapConflicts(CORNER, [], SCREEN),
+    { left: 800, top: 800 },
+    "nothing to avoid leaves the position alone"
+  );
+});
+
+add_task(async function test_overlap_clear_of_obstacle() {
+  Assert.deepEqual(
+    MiniWindowUtils.resolveOverlapConflicts(
+      CORNER,
+      [{ left: 0, top: 0, width: 200, height: 200 }],
+      SCREEN
+    ),
+    { left: 800, top: 800 },
+    "an obstacle it does not touch leaves the position alone"
+  );
+});
+
+add_task(async function test_overlap_prefers_a_free_screen_corner() {
+  // Exactly the spot the new window wants (the bottom-right corner), as a
+  // second mini window would be.
+  let moved = MiniWindowUtils.resolveOverlapConflicts(CORNER, [CORNER], SCREEN);
+
+  Assert.notDeepEqual(
+    moved,
+    { left: 800, top: 800 },
+    "a direct hit moves the window"
+  );
+  // Bottom-right is taken; the top-right and bottom-left corners are the
+  // nearest free ones and tie, so the first found (top-right) wins.
+  Assert.deepEqual(
+    moved,
+    { left: 800, top: 0 },
+    "parks in the nearest free screen corner"
+  );
+});
+
+add_task(async function test_overlap_falls_back_to_an_edge() {
+  // With all four screen corners taken there's no corner to park in, so the
+  // window sits flush against an obstacle's edge instead - nearest the
+  // conflict, and only where it stays on screen.
+  let moved = MiniWindowUtils.resolveOverlapConflicts(
+    CORNER,
+    [
+      { left: 0, top: 0, width: 200, height: 200 },
+      { left: 800, top: 0, width: 200, height: 200 },
+      { left: 0, top: 800, width: 200, height: 200 },
+      { left: 800, top: 800, width: 200, height: 200 },
+    ],
+    SCREEN
+  );
+
+  Assert.deepEqual(
+    moved,
+    { left: 600, top: 800 },
+    "flush against the bottom-right obstacle's left edge"
+  );
+});
+
+add_task(async function test_overlap_gives_up_when_boxed_in() {
+  // An obstacle filling the screen leaves no candidate anywhere.
+  Assert.deepEqual(
+    MiniWindowUtils.resolveOverlapConflicts(CORNER, [SCREEN], SCREEN),
+    { left: 800, top: 800 },
+    "nowhere to go falls back to the wanted position"
+  );
+});
+
+add_task(async function test_overlap_full_screen_of_quarters() {
+  // Four quarter-screen windows tile the whole screen: no free corner and no
+  // on-screen edge to slide to, so the new window keeps its wanted position as
+  // a last resort (and overlaps).
+  let quarters = [
+    { left: 0, top: 0, width: 500, height: 500 },
+    { left: 500, top: 0, width: 500, height: 500 },
+    { left: 0, top: 500, width: 500, height: 500 },
+    { left: 500, top: 500, width: 500, height: 500 },
+  ];
+
+  Assert.deepEqual(
+    MiniWindowUtils.resolveOverlapConflicts(CORNER, quarters, SCREEN),
+    { left: 800, top: 800 },
+    "a fully tiled screen leaves the window at its wanted position"
   );
 });

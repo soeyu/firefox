@@ -6,6 +6,7 @@ import json
 import unittest
 
 import mozunit
+from mozshellutil import split as shell_split
 
 from mozbuild.rust_commands import (
     CARGO_CONFIG_KEYS,
@@ -101,23 +102,23 @@ class TestCargoInvocation(unittest.TestCase):
     def test_from_environ(self):
         invocation = CargoInvocation.from_environ({
             "BUILD_VERBOSE_LOG": "1",
-            "USE_CARGO_JSON_MESSAGE_FORMAT": "1",
             "MACH_STDOUT_ISATTY": "1",
             "extra_rustflags": "-Wclippy::all -Dwarnings",
             "CARGO_RUSTCFLAGS": "-C 'link-arg=-L/opt/my libs'",
             "CARGO_EXTRA_FLAGS": "--offline",
             "RUSTC_BOOTSTRAP": "1",
+            "MOZ_RUST_TEST_SELECTION": "crashreporter l10nregistry",
         })
         self.assertEqual(
             invocation,
             CargoInvocation(
                 verbose=True,
-                json_output=True,
                 color="always",
                 extra_rustflags=("-Wclippy::all", "-Dwarnings"),
                 cargo_rustcflags=("-C", "link-arg=-L/opt/my libs"),
                 cargo_extra_flags=("--offline",),
                 rustc_bootstrap="1",
+                test_crates=("crashreporter", "l10nregistry"),
             ),
         )
 
@@ -132,12 +133,8 @@ class TestCargoInvocation(unittest.TestCase):
         self.assertEqual(CargoInvocation.from_environ({"NO_ANSI": "1"}).color, "")
 
     def test_zero_valued_signals_are_off(self):
-        invocation = CargoInvocation.from_environ({
-            "BUILD_VERBOSE_LOG": "0",
-            "USE_CARGO_JSON_MESSAGE_FORMAT": "0",
-        })
+        invocation = CargoInvocation.from_environ({"BUILD_VERBOSE_LOG": "0"})
         self.assertFalse(invocation.verbose)
-        self.assertFalse(invocation.json_output)
 
 
 ELIGIBLE = {"RUST_LTO_ELIGIBLE": "1"}
@@ -190,7 +187,7 @@ class TestCargoSpec(unittest.TestCase):
             "CARGO": "cargo",
             "MOZ_RUSTFLAGS_CODEGEN": ["-C", "codegen-units=1"],
             "MOZ_APP_NAME": "firefox",
-            "OS_ARCH": "Linux",
+            "MOZ_WIDGET_TOOLKIT": "gtk",
             "CC": ["clang"],
         }
         config = cargo_spec(_cmd(), substs, "/src", "/obj")["config"]
@@ -234,7 +231,7 @@ class TestCargoSpec(unittest.TestCase):
     def test_undeclared_key_raises(self):
         config = CargoConfig({"CARGO": "cargo"})
         self.assertEqual(config.get("CARGO"), "cargo")
-        for key in ("MOZ_APP_NAME", "OS_ARCH", "MOZ_TSAN", "CC_TYPE"):
+        for key in ("MOZ_APP_NAME", "MOZ_WIDGET_TOOLKIT", "MOZ_DEBUG", "CC_TYPE"):
             for read in (
                 lambda: config.get(key),
                 lambda: config[key],
@@ -283,30 +280,21 @@ class TestComposeArgv(unittest.TestCase):
         for arg in ("--no-fail-fast", "-p", "style"):
             self.assertIn(arg, argv)
 
-    def test_program_edge_rustc_flags_precede_the_configured_program_flags(self):
-        substs = _substs(
-            MOZ_RUST_PROGRAM_RUSTCFLAGS=["-C", "default-linker-libraries=yes"]
-        )
+    def test_program_edge_rustc_flags(self):
         cmd = _cmd(
             kind="program",
             names=("nmhproxy",),
             rustc_flags=("-C", "link-arg=/obj/browser/app/nmhproxy/module.res"),
         )
-        argv = _argv(cmd, substs)
+        argv = _argv(cmd, _substs())
         self.assertEqual(argv[argv.index("--bin") + 1], "nmhproxy")
         self.assertEqual(
             argv[argv.index("--") + 1 :],
-            [
-                "-C",
-                "link-arg=/obj/browser/app/nmhproxy/module.res",
-                "-C",
-                "default-linker-libraries=yes",
-            ],
+            ["-C", "link-arg=/obj/browser/app/nmhproxy/module.res"],
         )
 
-    def test_program_flags_do_not_reach_libraries(self):
+    def test_library_flags_do_not_reach_programs(self):
         substs = _substs(
-            MOZ_RUST_PROGRAM_RUSTCFLAGS=["-C", "default-linker-libraries=yes"],
             MOZ_RUST_LIBRARY_RUSTCFLAGS=["-C", "target-feature=-crt-static"],
         )
         argv = _argv(_cmd(), substs)
@@ -314,9 +302,7 @@ class TestComposeArgv(unittest.TestCase):
             argv[argv.index("--") + 1 :], ["-C", "target-feature=-crt-static"]
         )
         argv = _argv(_cmd(kind="program", names=("p",)), substs)
-        self.assertEqual(
-            argv[argv.index("--") + 1 :], ["-C", "default-linker-libraries=yes"]
-        )
+        self.assertNotIn("target-feature=-crt-static", argv)
 
     def test_cargo_rustcflags_follow_the_derived_rustc_flags(self):
         substs = _substs(RUST_LTO_ELIGIBLE="1")
@@ -326,20 +312,6 @@ class TestComposeArgv(unittest.TestCase):
             CargoInvocation(cargo_rustcflags=("-Ctarget-cpu=native",)),
         )
         self.assertEqual(argv[argv.index("--") + 1 :], ["-Clto", "-Ctarget-cpu=native"])
-
-    def test_cargo_rustcflags_follow_the_derived_program_rustc_flags(self):
-        substs = _substs(
-            MOZ_RUST_PROGRAM_RUSTCFLAGS=["-C", "default-linker-libraries=yes"]
-        )
-        argv = _argv(
-            _cmd(kind="program", names=("p",)),
-            substs,
-            CargoInvocation(cargo_rustcflags=("-Ctarget-cpu=native",)),
-        )
-        self.assertEqual(
-            argv[argv.index("--") + 1 :],
-            ["-C", "default-linker-libraries=yes", "-Ctarget-cpu=native"],
-        )
 
     def test_cargo_rustcflags_skip_edges_without_a_rustc_tail(self):
         for kind in ("host-library", "host-program", "test"):
@@ -482,6 +454,42 @@ class TestComposeArgv(unittest.TestCase):
                 "--manifest-path",
                 cmd.manifest_path,
                 "--extra",
+            ],
+        )
+
+    def test_test_edge_without_workspace_hack(self):
+        cmd = _cmd(kind="test", features=("f",), names=("style",))
+        argv = _argv(cmd, _substs(), workspace_hack=False)
+        self.assertEqual(
+            argv,
+            [
+                "cargo",
+                "test",
+                *TARGET_ARGS,
+                "--no-fail-fast",
+                "-p",
+                "style",
+                "--features",
+                "f",
+                "--manifest-path",
+                cmd.manifest_path,
+            ],
+        )
+
+    def test_test_edge_without_features_or_workspace_hack(self):
+        cmd = _cmd(kind="test", names=("style",))
+        argv = _argv(cmd, _substs(), workspace_hack=False)
+        self.assertEqual(
+            argv,
+            [
+                "cargo",
+                "test",
+                *TARGET_ARGS,
+                "--no-fail-fast",
+                "-p",
+                "style",
+                "--manifest-path",
+                cmd.manifest_path,
             ],
         )
 
@@ -682,6 +690,13 @@ class TestComposeEnv(unittest.TestCase):
         env = _env(_cmd(link_flags=("-Wl,-z,relro",)), substs)
         self.assertEqual(env["MOZ_CARGO_WRAP_LDFLAGS"], "-flto -Wl,-z,relro -Cpgo-ld")
 
+    def test_wrap_ldflags_quotes_link_flags(self):
+        lib = r"C:\clang\lib\windows\clang_rt.profile-x86_64.lib"
+        env = _env(_cmd(link_flags=(lib, "-Wl,-z,relro")), {})
+        self.assertEqual(
+            shell_split(env["MOZ_CARGO_WRAP_LDFLAGS"]), [lib, "-Wl,-z,relro"]
+        )
+
     def test_program_keeps_fsanitize_without_a_configured_filter(self):
         cmd = _cmd(kind="program", link_flags=("-fsanitize=address",))
         env = _env(cmd, {})
@@ -714,14 +729,6 @@ class TestComposeEnv(unittest.TestCase):
         self.assertEqual(
             _env(cmd, substs)["MOZ_CARGO_WRAP_LDFLAGS"], "-Wl,-z,now -lfoobar"
         )
-
-    def test_program_ldflags_follow_the_filtered_flags(self):
-        substs = {"MOZ_RUST_PROGRAM_LDFLAGS": ["-L/obj/build/win32", "-lunwind"]}
-        env = _env(_cmd(kind="program", link_flags=("-Wl,-z,relro",)), substs)
-        self.assertEqual(
-            env["MOZ_CARGO_WRAP_LDFLAGS"], "-Wl,-z,relro -L/obj/build/win32 -lunwind"
-        )
-        self.assertEqual(_env(_cmd(), substs)["MOZ_CARGO_WRAP_LDFLAGS"], "")
 
     def test_lto_object_path_stages_objects_per_edge(self):
         substs = {"MOZ_LTO_OBJECT_PATH": "1"}

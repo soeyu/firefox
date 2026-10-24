@@ -695,6 +695,8 @@ internal object IntegrityCheckingUniffiLib {
         Native.register(IntegrityCheckingUniffiLib::class.java, findLibraryName(componentName = "remote_settings"))
         uniffiCheckContractApiVersion(this)
     }
+
+    internal fun ensureInitialized() = Unit
     external fun uniffi_remote_settings_checksum_method_remotesettingsclient_collection_name(
     ): Int
     external fun uniffi_remote_settings_checksum_method_remotesettingsclient_get_attachment(
@@ -744,6 +746,8 @@ internal object UniffiLib {
         uniffiCallbackInterfaceRemoteSettingsTelemetry.register(this)
         
     }
+
+    internal fun ensureInitialized() = Unit
     external fun uniffi_remote_settings_fn_clone_remotesettingsclient(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): Long
     external fun uniffi_remote_settings_fn_free_remotesettingsclient(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
@@ -910,10 +914,10 @@ private fun uniffiCheckContractApiVersion(lib: IntegrityCheckingUniffiLib) {
  * @suppress
  */
 public fun uniffiEnsureInitialized() {
-    IntegrityCheckingUniffiLib
-    // UniffiLib() initialized as objects are used, but we still need to explicitly
-    // reference it so initialization across crates works as expected.
-    UniffiLib
+    // Call arbitrary methods on IntegrityCheckingUniffiLib and UniffiLib to ensure that
+    // their init blocks run. This ensures initialization across crates works as expected.
+    IntegrityCheckingUniffiLib.ensureInitialized()
+    UniffiLib.ensureInitialized()
 }
 
 // Async support
@@ -2611,6 +2615,8 @@ data class RemoteSettingsContext (
      */
     var `country`: kotlin.String? = null 
     , 
+    var `distribution`: kotlin.String? = null 
+    , 
     /**
      * Extra attributes to add to the env for JEXL filtering.
      *
@@ -2642,6 +2648,7 @@ public object FfiConverterTypeRemoteSettingsContext: FfiConverterRustBuffer<Remo
             FfiConverterOptionalString.read(buf),
             FfiConverterOptionalString.read(buf),
             FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
             FfiConverterOptionalMapStringString.read(buf),
         )
     }
@@ -2655,6 +2662,7 @@ public object FfiConverterTypeRemoteSettingsContext: FfiConverterRustBuffer<Remo
             FfiConverterOptionalString.allocationSize(value.`osVersion`) +
             FfiConverterOptionalString.allocationSize(value.`formFactor`) +
             FfiConverterOptionalString.allocationSize(value.`country`) +
+            FfiConverterOptionalString.allocationSize(value.`distribution`) +
             FfiConverterOptionalMapStringString.allocationSize(value.`customTargettingAttributes`)
     )
 
@@ -2667,6 +2675,7 @@ public object FfiConverterTypeRemoteSettingsContext: FfiConverterRustBuffer<Remo
             FfiConverterOptionalString.write(value.`osVersion`, buf)
             FfiConverterOptionalString.write(value.`formFactor`, buf)
             FfiConverterOptionalString.write(value.`country`, buf)
+            FfiConverterOptionalString.write(value.`distribution`, buf)
             FfiConverterOptionalMapStringString.write(value.`customTargettingAttributes`, buf)
     }
 }

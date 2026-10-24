@@ -73,6 +73,7 @@
 #include "nsFrameLoaderOwner.h"
 #include "nsFrameManager.h"
 #include "nsIAppWindow.h"
+#include "nsIArray.h"
 #include "nsIBaseWindow.h"
 #include "nsIBrowser.h"
 #include "nsIBrowserController.h"
@@ -780,7 +781,7 @@ void BrowserParent::Destroy() {
   }
 }
 
-mozilla::ipc::IPCResult BrowserParent::RecvDidUnsuppressPainting() {
+mozilla::ipc::IPCResult BrowserParent::RecvReadyToReplaceRetainedPaint() {
   if (!mFrameElement) {
     return IPC_OK();
   }
@@ -790,6 +791,24 @@ mozilla::ipc::IPCResult BrowserParent::RecvDidUnsuppressPainting() {
     subdocFrame->ClearRetainedPaintData();
   }
   return IPC_OK();
+}
+
+mozilla::ipc::IPCResult
+BrowserParent::RecvReadyToReplaceRetainedPaintNormalPriority() {
+  // Only an initial about:blank document sends this. The frame retains the
+  // paint of the previous document only while a BFCache swap waits for a
+  // document that has been loaded or restored, so the initial document must not
+  // replace it. If that document never comes, for example because the load
+  // fails after the swap, the previous document stays visible until this
+  // BrowserParent is destroyed.
+  if (mFrameElement) {
+    nsSubDocumentFrame* subdocFrame =
+        do_QueryFrame(mFrameElement->GetPrimaryFrame());
+    if (subdocFrame && subdocFrame->HasRetainedPaintData()) {
+      return IPC_OK();
+    }
+  }
+  return RecvReadyToReplaceRetainedPaint();
 }
 
 mozilla::ipc::IPCResult BrowserParent::RecvEnsureLayersConnected(
@@ -811,7 +830,7 @@ void BrowserParent::ActorDestroy(ActorDestroyReason why) {
   // Need to close undeleted ContentPermissionRequestParents before tab is
   // closed.
   // FIXME: Why is PContentPermissionRequest not managed by PBrowser?
-  nsTArray<PContentPermissionRequestParent*> parentArray =
+  nsTArray<RefPtr<ContentPermissionRequestParent>> parentArray =
       nsContentPermissionUtils::GetContentPermissionRequestParentById(mTabId);
   for (auto& permissionRequestParent : parentArray) {
     (void)PContentPermissionRequestParent::Send__delete__(
@@ -1334,38 +1353,36 @@ IPCResult BrowserParent::RecvNewWindowGlobal(
     return IPC_FAIL(this, "Cannot create without valid documentURI");
   }
 
-  nsCOMPtr<nsIURI> docURI = aInit.documentURI();
-
   // Ensure we never load a document with a content principal in
   // the wrong type of webIsolated process
   // NOTE: Keep the AllowSystem condition in sync with the similar check in
   // DocumentLoadListener::TriggerRedirectToRealChannel.
   EnumSet<ValidatePrincipalOptions> validationOptions = {};
-  if (xpc::IsInAutomation()) {
-    // Automation-Only: chrome://reftest/** + blank subframes
-    bool isChromeReftest = false;
-    if (docURI->SchemeIs("chrome")) {
-      nsAutoCString host;
-      docURI->GetHost(host);
-      isChromeReftest = host.EqualsLiteral("reftest");
-    }
-
-    if (isChromeReftest ||
-        (NS_IsAboutBlank(docURI) && parentWgp && parentWgp->Manager() == this &&
-         parentWgp->DocumentPrincipal()->IsSystemPrincipal())) {
-      validationOptions += ValidatePrincipalOptions::AllowSystemIfLoaded;
-    }
+  if (StaticPrefs::
+          dom_ipc_validatePrincipal_testing_allowContentSystemDocuments() &&
+      xpc::IsInAutomation()) {
+    validationOptions += ValidatePrincipalOptions::AllowSystemIfLoaded;
   }
   if (!Manager()->ValidatePrincipal(aInit.principal(), validationOptions)) {
     return ContentParent::PrincipalValidationIpcFail(aInit.principal(), this,
                                                      __func__);
   }
 
-  // Construct our new WindowGlobalParent, bind, and initialize it.
+  // Construct our new WindowGlobalParent from the fields derived here, bind it,
+  // and reconcile the fields the content process sent.
+  WindowGlobalInit derivedInit(aInit);
+  derivedInit.context().mFields =
+      WindowGlobalActor::ComputeInitialFields(browsingContext);
   RefPtr<WindowGlobalParent> wgp =
-      WindowGlobalParent::CreateDisconnected(aInit, Manager());
-  BindPWindowGlobalEndpoint(std::move(aEndpoint), wgp);
-  wgp->Init();
+      WindowGlobalParent::CreateDisconnected(derivedInit, Manager());
+  if (!wgp) {
+    return IPC_FAIL(this, "Failed to create WindowGlobalParent");
+  }
+
+  if (NS_WARN_IF(!BindPWindowGlobalEndpoint(std::move(aEndpoint), wgp))) {
+    return IPC_FAIL(this, "BindPWindowGlobalEndpoint failed");
+  }
+  wgp->InitFromContentProcess(aInit.context().mFields, Manager());
   return IPC_OK();
 }
 
@@ -2114,7 +2131,11 @@ void BrowserParent::SendRealKeyEvent(WidgetKeyboardEvent& aEvent) {
   NS_WARNING_ASSERTION(ok, "PBrowserParent::SendRealKeyEvent() failed");
   MOZ_ASSERT(!ok || aEvent.HasBeenPostedToRemoteProcess());
   if (ok && aEvent.IsWaitingReplyFromRemoteProcess()) {
-    mWaitingReplyKeyboardEvents.AppendElement(sendKeyEventData);
+    // Although mAlternativeCharCodes contains only 3 items at most and each
+    // item is small, but let's assign it only when we actually store the data
+    // for avoiding unnecessary allocation.
+    sendKeyEventData.mAlternativeCharCodes = aEvent.mAlternativeCharCodes;
+    mWaitingReplyKeyboardEvents.AppendElement(std::move(sendKeyEventData));
   }
 }
 
@@ -2778,7 +2799,11 @@ mozilla::ipc::IPCResult BrowserParent::RecvReplyKeyEvent(
             NS_WARN_IF(data.mModifiers != aEvent.mModifiers) ||
             // The child process should've already cleared the editor commands
             // because we don't use them.
-            NS_WARN_IF(aEvent.HasEditCommands())) {
+            NS_WARN_IF(aEvent.HasEditCommands()) ||
+            // Let's avoid triggering unintended keyboard shortcuts or access
+            // keys.
+            NS_WARN_IF(data.mAlternativeCharCodes !=
+                       aEvent.mAlternativeCharCodes)) {
           // Got different event data from what we stored before dispatching an
           // event with the ID.
           return Nothing();
@@ -4144,7 +4169,10 @@ mozilla::ipc::IPCResult BrowserParent::RecvVisitURI(
   }
   nsCOMPtr<IHistory> history = components::History::Service();
   if (history) {
-    (void)history->VisitURI(widget, aURI, aLastVisitedURI, aFlags, aBrowserId);
+    // The container isn't sent by the content process, so it can't be forged.
+    (void)history->VisitURI(
+        widget, aURI, aLastVisitedURI, aFlags, aBrowserId,
+        mBrowsingContext->OriginAttributesRef().mUserContextId);
   }
   return IPC_OK();
 }

@@ -14,6 +14,8 @@ function assertContainerUnmoved() {
 }
 
 add_setup(async function setup() {
+  UrlbarTestUtils.registerZeroPrefixProvider();
+
   await PlacesUtils.history.clear();
   await PlacesUtils.bookmarks.eraseEverything();
   containerHeight = gURLBar.parentNode.getBoundingClientRect().height;

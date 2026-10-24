@@ -22,6 +22,7 @@ import java.security.InvalidParameterException
 import java.util.concurrent.TimeUnit.MILLISECONDS
 import mozilla.components.concept.engine.Engine
 import mozilla.components.concept.engine.Engine.HttpsOnlyMode
+import mozilla.components.feature.automotive.isAndroidAutomotiveAvailable
 import mozilla.components.feature.sitepermissions.SitePermissionsRules
 import mozilla.components.feature.sitepermissions.SitePermissionsRules.Action
 import mozilla.components.feature.sitepermissions.SitePermissionsRules.AutoplayAction
@@ -48,6 +49,7 @@ import org.mozilla.fenix.GleanMetrics.TopSites
 import org.mozilla.fenix.R
 import org.mozilla.fenix.autofill.address.RegionAddressFeatureGate
 import org.mozilla.fenix.browser.browsingmode.BrowsingMode
+import org.mozilla.fenix.components.lens.CameraMode
 import org.mozilla.fenix.components.settings.counterPreference
 import org.mozilla.fenix.components.settings.featureFlagBooleanPreference
 import org.mozilla.fenix.components.settings.lazyFeatureFlagBooleanPreference
@@ -523,6 +525,12 @@ class Settings(
     var isUserSkyflagAttributed by
         booleanPreference(
             appContext.getPreferenceKey(R.string.pref_key_is_user_skyflag_attributed),
+            default = false,
+        )
+
+    var isUserQuoraAttributed by
+        booleanPreference(
+            appContext.getPreferenceKey(R.string.pref_key_is_user_quora_attributed),
             default = false,
         )
 
@@ -1528,6 +1536,25 @@ class Settings(
             field = value
         }
 
+    /**
+     * The state of the OS power saving (battery saver) mode the last time it was observed, or `null` if it has never
+     * been observed. Persisted so that a change made while the app process was not running is still detected the next
+     * time the app starts.
+     */
+    var lastKnownPowerSaveMode: Boolean?
+        get() {
+            val key = appContext.getPreferenceKey(R.string.pref_key_last_known_power_save_mode)
+
+            return if (preferences.contains(key)) preferences.getBoolean(key, false) else null
+        }
+        set(value) {
+            val key = appContext.getPreferenceKey(R.string.pref_key_last_known_power_save_mode)
+
+            preferences.edit {
+                if (value == null) remove(key) else putBoolean(key, value)
+            }
+        }
+
     var shouldDeleteBrowsingDataOnQuit by
         booleanPreference(
             appContext.getPreferenceKey(R.string.pref_key_delete_browsing_data_on_quit),
@@ -1958,16 +1985,23 @@ class Settings(
             default = true,
         )
 
+    /**
+     * Whether this device supports the application's own autofill and password management. Both are disabled on Android
+     * Automotive OS for now until we meet specific Google requirements around protecting passwords and credit card
+     * information in cars.
+     */
+    val isAutofillSupported: Boolean by lazy { !appContext.isAndroidAutomotiveAvailable() }
+
     var shouldPromptToSaveLogins by
         booleanPreference(
             appContext.getPreferenceKey(R.string.pref_key_save_logins),
-            default = true,
+            default = { isAutofillSupported },
         )
 
     var shouldAutofillLogins by
         booleanPreference(
             appContext.getPreferenceKey(R.string.pref_key_autofill_logins),
-            default = true,
+            default = { isAutofillSupported },
         )
 
     /**
@@ -1994,6 +2028,13 @@ class Settings(
         booleanPreference(
             appContext.getPreferenceKey(R.string.pref_key_search_widget_installed_2),
             default = false,
+        )
+
+    /** The app version code that last published the generated search bar widget previews. */
+    var searchBarWidgetPreviewsVersion by
+        intPreference(
+            appContext.getPreferenceKey(R.string.pref_key_search_bar_widget_previews_version),
+            default = 0,
         )
 
     /** Indicates if the "pocket_recommendations" database has been deleted. */
@@ -2323,7 +2364,7 @@ class Settings(
     var shouldAutofillCreditCardDetails by
         booleanPreference(
             appContext.getPreferenceKey(R.string.pref_key_credit_cards_save_and_autofill_cards),
-            default = true,
+            default = { isAutofillSupported },
         )
 
     /**
@@ -2334,7 +2375,7 @@ class Settings(
     var shouldAutofillAddressDetails by
         booleanPreference(
             appContext.getPreferenceKey(R.string.pref_key_addresses_save_and_autofill_addresses),
-            default = true,
+            default = { isAutofillSupported },
         )
 
     /** Indicates if the Contile functionality should be visible. */
@@ -2422,6 +2463,16 @@ class Settings(
             default = { FxNimbus.features.continuousOnboarding.value().enabled },
         )
 
+    /**
+     * Whether the Sync sign-in card can be shown during initial onboarding for users whose Firefox install is
+     * attributed to a pairing campaign link.
+     */
+    var isPairingSignInPromptEnabled by
+        booleanPreference(
+            appContext.getPreferenceKey(R.string.pref_key_is_pairing_sign_in_prompt_enabled),
+            default = { FxNimbus.features.pairingSigninPrompt.value().enabled },
+        )
+
     /** The completion timestamp of the second day of continuous onboarding. */
     var secondDayOnboardingCompletedTimestamp by
         longPreference(
@@ -2450,6 +2501,17 @@ class Settings(
             default = -1L,
         )
 
+    /** Indicates if continuous onboarding has been completed, meaning its final day-7 stage has finished. */
+    val continuousOnboardingCompleted: Boolean
+        get() = seventhDayOnboardingCompletedTimestamp != -1L
+
+    /** Indicates if the migrate onboarding state feature is enabled. */
+    var migrateOnboardingStateFeatureEnabled by
+        booleanPreference(
+            key = appContext.getPreferenceKey(R.string.pref_key_migrate_onboarding_state_enabled),
+            default = { FxNimbus.features.migrateOnboardingState.value().enabled },
+        )
+
     /** Indicates if the marketing onboarding card should be shown to the user. */
     var shouldShowMarketingOnboarding by
         booleanPreference(
@@ -2468,6 +2530,16 @@ class Settings(
         booleanPreference(
             key = appContext.getPreferenceKey(R.string.pref_key_use_remote_search_configuration),
             default = { FxNimbus.features.remoteSearchConfiguration.value().enabled },
+        )
+
+    /**
+     * Indicates whether to read search configuration from the `search-config-v3` Remote Settings collection instead of
+     * `search-config-v2`.
+     */
+    var useSearchConfigV3 by
+        booleanPreference(
+            key = appContext.getPreferenceKey(R.string.pref_key_use_search_config_v3),
+            default = { FxNimbus.features.searchConfigV3.value().enabled },
         )
 
     /** Get the current mode for how https-only is enabled. */
@@ -2592,13 +2664,6 @@ class Settings(
         booleanPreference(
             key = appContext.getPreferenceKey(R.string.pref_key_enable_ads_client_for_stories),
             default = { FxNimbus.features.adsClientForStories.value().enabled },
-        )
-
-    /** Indicates if Add Shortcuts improvement is enabled. */
-    var enableAddShortcutsImprovement by
-        booleanPreference(
-            key = appContext.getPreferenceKey(R.string.pref_key_enable_add_shortcuts_improvement),
-            default = { FxNimbus.features.addShortcutsImprovement.value().enabled },
         )
 
     /** Indicates if more shortcuts should be shown. */
@@ -2881,17 +2946,6 @@ class Settings(
         get() = FxNimbus.features.ipProtection.value().enabled || isIPProtectionEnabled
 
     /**
-     * Persists IPProtection locations state set through Secret Settings.
-     *
-     * `true` makes the IPProtection location UI elements interactable.
-     */
-    var isIPProtectionLocationsEnabled by
-        booleanPreference(
-            key = appContext.getPreferenceKey(R.string.pref_key_enable_ip_protection_locations),
-            default = Config.channel.isDebug,
-        )
-
-    /**
      * Tracks how many times the summarize menu item has been shown. Used to control highlight/badge visibility for
      * feature discovery.
      */
@@ -2925,13 +2979,6 @@ class Settings(
     var shakeToSummarizeToolbarCfrShown by
         booleanPreference(
             key = appContext.getPreferenceKey(R.string.pref_key_summarize_toolbar_cfr_shown),
-            default = false,
-        )
-
-    /** Indicates if a microsurvey should be shown to the user. */
-    var shouldShowMicrosurveyPrompt by
-        booleanPreference(
-            appContext.getPreferenceKey(R.string.pref_key_should_show_microsurvey_prompt),
             default = false,
         )
 
@@ -2975,14 +3022,11 @@ class Settings(
             default = false,
         )
 
-    /**
-     * Feature flag that indicates if the "Check Archived Version" button is shown on eligible error pages. Off by
-     * default; the toggle is only exposed via secret settings on Nightly.
-     */
+    /** Feature flag that indicates if the "Check Archived Version" button is shown on eligible error pages. */
     var isWaybackMachineEnabled by
         booleanPreference(
             key = appContext.getPreferenceKey(R.string.pref_key_enable_wayback_machine),
-            default = false,
+            default = { FxNimbus.features.waybackMachine.value().enabled },
         )
 
     /** Indicates if the Set as default Browser prompt should be displayed to the user. */
@@ -2990,6 +3034,8 @@ class Settings(
         nimbusFeature: DefaultBrowserPrompt = FxNimbus.features.defaultBrowserPrompt.value()
     ): Boolean {
         if (!nimbusFeature.enabled) return false
+
+        if (continuousOnboardingFeatureEnabled && !continuousOnboardingCompleted) return false
 
         val now = currentTimeMillis()
 
@@ -3309,7 +3355,7 @@ class Settings(
     var nativeShareSheetEnabled by
         booleanPreference(
             key = appContext.getPreferenceKey(R.string.pref_key_native_share_sheet),
-            default = { FxNimbus.features.nativeShareSheet.value().enabled },
+            default = true,
         )
 
     var googleLensIntegrationEnabled by
@@ -3339,6 +3385,22 @@ class Settings(
             default = false,
         )
 
+    private var lensCameraLastModeName by
+        stringPreference(
+            key = appContext.getPreferenceKey(R.string.pref_key_lens_camera_last_mode),
+            default = CameraMode.LENS.name,
+        )
+
+    /**
+     * The [CameraMode] the user last selected on the Google Lens camera screen. The camera screen opens in this mode
+     * and the address bar shows the matching icon.
+     */
+    var lensCameraLastMode: CameraMode
+        get() = CameraMode.fromNameOrNull(lensCameraLastModeName) ?: CameraMode.LENS
+        set(value) {
+            lensCameraLastModeName = value.name
+        }
+
     /** Whether the voice search entry point is shown in the display-mode browser toolbar. */
     var showVoiceSearchInDisplayToolbar by
         booleanPreference(
@@ -3353,10 +3415,17 @@ class Settings(
             default = { FxNimbus.features.addressbarFocusMode.value().enabled },
         )
 
-    /** Whether the customizing the browser menu is allowed. */
+    /** Whether customizing the browser menu is allowed. */
     var isMenuCustomizationEnabled by
         booleanPreference(
             key = appContext.getPreferenceKey(R.string.pref_key_enable_menu_customization),
+            default = { false },
+        )
+
+    /** Whether entering the browser menu customization screen is allowed. */
+    var isMenuCustomizationScreenEnabled by
+        booleanPreference(
+            key = appContext.getPreferenceKey(R.string.pref_key_enable_menu_customization_screen),
             default = { false },
         )
 
@@ -3460,4 +3529,50 @@ class Settings(
             key = appContext.getPreferenceKey(R.string.pref_key_enable_account_settings_new_ui),
             default = { FxNimbus.features.accountSyncDecoupleM1.value().enabled },
         )
+
+    /** Whether or not accounts & sync decoupling is enabled */
+    var syncDecouplingEnabled by
+        booleanPreference(
+            key = appContext.getPreferenceKey(R.string.pref_key_enable_sync_decoupling),
+            default = { FxNimbus.features.accountSyncDecouple.value().enabled },
+        )
+
+    private var powerSavingModeAutoPreference by
+        booleanPreference(
+            key = appContext.getPreferenceKey(R.string.pref_key_power_saving_mode_auto_enabled),
+            default = false,
+        )
+
+    private var powerSavingModeManuallyPreference by
+        booleanPreference(
+            key = appContext.getPreferenceKey(R.string.pref_key_power_saving_mode_manually_enabled),
+            default = false,
+        )
+
+    /**
+     * Indicates if Power Saving Mode should turn on automatically whenever the OS reports that power save (battery
+     * saver) mode is active. Mutually exclusive with [powerSavingModeManuallyEnabled], which is turned off whenever
+     * this is turned on.
+     */
+    var powerSavingModeAutoEnabled: Boolean
+        get() = powerSavingModeAutoPreference
+        set(value) {
+            powerSavingModeAutoPreference = value
+            if (value) {
+                powerSavingModeManuallyPreference = false
+            }
+        }
+
+    /**
+     * Indicates if Power Saving Mode is enabled manually, regardless of the OS power save (battery saver) mode.
+     * Mutually exclusive with [powerSavingModeAutoEnabled], which is turned off whenever this is turned on.
+     */
+    var powerSavingModeManuallyEnabled: Boolean
+        get() = powerSavingModeManuallyPreference
+        set(value) {
+            powerSavingModeManuallyPreference = value
+            if (value) {
+                powerSavingModeAutoPreference = false
+            }
+        }
 }

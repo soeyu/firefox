@@ -77,6 +77,7 @@
 #include "mozilla/StaticPrefs_layout.h"
 #include "mozilla/StaticPrefs_test.h"
 #include "mozilla/StaticPrefs_toolkit.h"
+#include "mozilla/StaticPrefs_ui.h"
 #include "mozilla/StyleSheet.h"
 #include "mozilla/StyleSheetInlines.h"
 #include "mozilla/Telemetry.h"
@@ -253,8 +254,7 @@ struct RangePaintInfo {
   float mResolution = 1.0;
 
   explicit RangePaintInfo(nsIFrame* aFrame)
-      : mBuilder(aFrame, nsDisplayListBuilderMode::Painting, false),
-        mList(&mBuilder) {
+      : mBuilder(aFrame, nsDisplayListBuilderMode::Painting, false) {
     MOZ_COUNT_CTOR(RangePaintInfo);
     mBuilder.BeginFrame();
   }
@@ -437,12 +437,16 @@ class MOZ_STACK_CLASS nsPresShellEventCB : public EventDispatchingCallback {
   virtual void HandleEvent(EventChainPostVisitor& aVisitor) override {
     if (aVisitor.mPresContext && aVisitor.mEvent->mClass != eBasicEventClass) {
       if (aVisitor.mEvent->mMessage == eMouseDown ||
-          aVisitor.mEvent->mMessage == eMouseUp) {
-        // Mouse-up and mouse-down events call nsIFrame::HandlePress/Release
-        // which call GetContentOffsetsFromPoint which requires up-to-date
-        // layout. Bring layout up-to-date now so that GetCurrentEventFrame()
-        // below will return a real frame and we don't have to worry about
-        // destroying it by flushing later.
+          aVisitor.mEvent->mMessage == eMouseUp ||
+          (aVisitor.mEvent->mMessage == eContextMenu &&
+           StaticPrefs::ui_mouse_right_click_select_under_cursor())) {
+        // Mouse-up, mouse-down and contextmenu events call
+        // nsIFrame::HandlePress/Release and
+        // nsIFrame::HandleContextMenuEventToSelectWordOrLink which call
+        // GetContentOffsetsFromPoint which requires up-to-date layout. Bring
+        // layout up-to-date now so that GetCurrentEventFrame() below will
+        // return a real frame and we don't have to worry about destroying it by
+        // flushing later.
         MOZ_KnownLive(mPresShell)->FlushPendingNotifications(FlushType::Layout);
       } else if (aVisitor.mEvent->mMessage == eWheel &&
                  aVisitor.mEventStatus != nsEventStatus_eConsumeNoDefault) {
@@ -781,8 +785,6 @@ PresShell::~PresShell() {
                    mLastCallbackEventRequest == nullptr,
                "post-reflow queues not empty.  This means we're leaking");
 
-  MOZ_ASSERT(!mAllocatedPointers || mAllocatedPointers->IsEmpty(),
-             "Some pres arena objects were not freed");
   MOZ_ASSERT(mContentVisibilityAutoFrames.IsEmpty(),
              "All content-visibility:auto frames should be unregistered");
   MOZ_ASSERT(mContentVisibilityHiddenCount == 0,
@@ -919,7 +921,8 @@ void PresShell::Init(nsPresContext* aPresContext) {
     mZoomConstraintsClient->Init(this, mDocument);
 
     // We call this to create mMobileViewportManager, if it is needed.
-    MaybeRecreateMobileViewportManager(false);
+    MaybeRecreateMobileViewportManager(
+        MobileViewportManagerUpdate::PresShellInit);
   }
 
   if (nsCOMPtr<nsIDocShell> docShell = mPresContext->GetDocShell()) {
@@ -4344,12 +4347,12 @@ void PresShell::UnsuppressAndInvalidate() {
   }
 
   if (mPresContext->IsRootContentDocumentCrossProcess()) {
-    if (auto* bc = BrowserChild::GetFrom(mDocument->GetDocShell())) {
-      if (mDocument->IsInitialDocument()) {
-        bc->SendDidUnsuppressPaintingNormalPriority();
-      } else {
-        bc->SendDidUnsuppressPainting();
-      }
+    // Deferred for an inbound view transition, see Document::Reveal.
+    // TODO(bug 1971055): Defer also for other navigations.
+    if (mDocument->HasPendingInboundCrossDocumentViewTransition()) {
+      mPresContext->DeferReadyToReplaceRetainedPaint();
+    } else {
+      mPresContext->SendReadyToReplaceRetainedPaint();
     }
   }
 
@@ -4391,8 +4394,8 @@ void PresShell::UnsuppressPainting() {
 
 // Post a request to handle an arbitrary callback after reflow has finished.
 nsresult PresShell::PostReflowCallback(nsIReflowCallback* aCallback) {
-  void* result = AllocateByObjectID(eArenaObjectID_nsCallbackEventRequest,
-                                    sizeof(nsCallbackEventRequest));
+  void* result = FrameArena::Allocate(eArenaObjectID_nsCallbackEventRequest,
+                                      sizeof(nsCallbackEventRequest));
   nsCallbackEventRequest* request = (nsCallbackEventRequest*)result;
 
   request->callback = aCallback;
@@ -4429,7 +4432,7 @@ void PresShell::CancelReflowCallback(nsIReflowCallback* aCallback) {
         mLastCallbackEventRequest = before;
       }
 
-      FreeByObjectID(eArenaObjectID_nsCallbackEventRequest, toFree);
+      FrameArena::Free(eArenaObjectID_nsCallbackEventRequest, toFree);
     } else {
       before = node;
       node = node->next;
@@ -4445,7 +4448,7 @@ void PresShell::CancelPostedReflowCallbacks() {
       mLastCallbackEventRequest = nullptr;
     }
     nsIReflowCallback* callback = node->callback;
-    FreeByObjectID(eArenaObjectID_nsCallbackEventRequest, node);
+    FrameArena::Free(eArenaObjectID_nsCallbackEventRequest, node);
     if (callback) {
       callback->ReflowCallbackCanceled();
     }
@@ -4463,7 +4466,7 @@ void PresShell::HandlePostedReflowCallbacks(bool aInterruptible) {
         mLastCallbackEventRequest = nullptr;
       }
       nsIReflowCallback* callback = node->callback;
-      FreeByObjectID(eArenaObjectID_nsCallbackEventRequest, node);
+      FrameArena::Free(eArenaObjectID_nsCallbackEventRequest, node);
       if (callback && callback->ReflowFinished()) {
         shouldFlush = true;
       }
@@ -4607,12 +4610,6 @@ void PresShell::DoFlushPendingNotifications(mozilla::ChangesToFlush aFlush) {
   // main document is flushing >= FlushType::Frames, so we flush external
   // resources here instead of Document::FlushPendingNotifications.
   doc->FlushExternalResources(flushType);
-
-  // Force flushing of any pending content notifications that might have
-  // queued up while our event was pending.  That will ensure that we don't
-  // construct frames for content right now that's still waiting to be
-  // notified on,
-  doc->FlushPendingNotifications(FlushType::ContentAndNotify);
 
   doc->UpdateSVGUseElementShadowTrees();
 
@@ -5338,7 +5335,7 @@ UniquePtr<RangePaintInfo> PresShell::CreateRangePaintInfo(
     ViewID zoomedId = nsLayoutUtils::FindOrCreateIDFor(
         rootScrollContainerFrame->GetContent());
 
-    nsDisplayList wrapped(&info->mBuilder);
+    nsDisplayList wrapped;
     wrapped.AppendNewToTop<nsDisplayAsyncZoom>(
         &info->mBuilder, rootScrollContainerFrame, &info->mList, nullptr,
         nsDisplayItem::ContainerASRType::Constant, zoomedId);
@@ -5653,7 +5650,7 @@ already_AddRefed<SourceSurface> PresShell::RenderSelection(
 
 static void AddDisplayItemToBottom(nsDisplayListBuilder* aBuilder,
                                    nsDisplayList* aList, nsDisplayItem* aItem) {
-  nsDisplayList list(aBuilder);
+  nsDisplayList list;
   list.AppendToTop(aItem);
   list.AppendToTop(aList);
   aList->AppendToTop(&list);
@@ -5704,6 +5701,9 @@ void PresShell::AddCanvasBackgroundColorItem(nsDisplayListBuilder* aBuilder,
 
   nsDisplaySolidColor* item =
       MakeDisplayItem<nsDisplaySolidColor>(aBuilder, aFrame, aBounds, bgcolor);
+  if (!item) {
+    return;
+  }
   if (canvasBg.mCSSSpecified && isRootContentDocumentCrossProcess) {
     item->SetIsCheckerboardBackground();
   }
@@ -6776,7 +6776,11 @@ void PresShell::PaintInternal(nsIFrame* aFrame, WindowRenderer* aRenderer,
   }
 
   if (aFrame) {
+    // A view transition capture must build a display list, also when an
+    // iframe is captured from an ancestor root frame that has no pending
+    // layer tree update.
     if (!(aFlags & PaintInternalFlags::PaintSyncDecodeImages) &&
+        !(aFlags & PaintInternalFlags::PaintCompositeOffscreen) &&
         !aFrame->HasAnyStateBits(NS_FRAME_UPDATE_LAYER_TREE)) {
       if (layerManager) {
         layerManager->SetTransactionIdAllocator(presContext->RefreshDriver());
@@ -7264,7 +7268,6 @@ void PresShell::RecordModifiers(WidgetGUIEvent* aEvent) {
     case eMouseTouchDrag:
     case eMouseLongTap:
     case eMouseRawUpdate:
-    case eMouseExploreByTouch:
     case ePointerCancel:
     case eContextMenu:
     case eTouchStart:
@@ -12103,6 +12106,13 @@ MobileViewportManager* PresShell::GetMobileViewportManager() const {
   return mMobileViewportManager;
 }
 
+// Whether layout should be sized by the MobileViewportManager from
+// GetViewportInfo, for a meta viewport or a viewport size override.
+static bool ShouldSizeLayoutFromViewportInfo(const Document* aDocument) {
+  return nsLayoutUtils::ShouldHandleMetaViewport(aDocument) ||
+         aDocument->HasViewportSizeOverrideForMiniWindow();
+}
+
 Maybe<MobileViewportManager::ManagerType> UseMobileViewportManager(
     PresShell* aPresShell, Document* aDocument) {
   // If we're not using APZ, we won't be able to zoom, so there is no
@@ -12112,7 +12122,7 @@ Maybe<MobileViewportManager::ManagerType> UseMobileViewportManager(
       return Nothing();
     }
   }
-  if (nsLayoutUtils::ShouldHandleMetaViewport(aDocument)) {
+  if (ShouldSizeLayoutFromViewportInfo(aDocument)) {
     return Some(MobileViewportManager::ManagerType::VisualAndMetaViewport);
   }
   if (nsLayoutUtils::AllowZoomingForDocument(aDocument)) {
@@ -12121,7 +12131,8 @@ Maybe<MobileViewportManager::ManagerType> UseMobileViewportManager(
   return Nothing();
 }
 
-void PresShell::MaybeRecreateMobileViewportManager(bool aAfterInitialization) {
+void PresShell::MaybeRecreateMobileViewportManager(
+    MobileViewportManagerUpdate aUpdate) {
   // Determine if we require a MobileViewportManager, and what kind if so. We
   // need one any time we allow resolution zooming for a document, and any time
   // we want to obey <meta name="viewport"> tags for it.
@@ -12134,7 +12145,11 @@ void PresShell::MaybeRecreateMobileViewportManager(bool aAfterInitialization) {
   }
   if (mvmType && mMobileViewportManager &&
       *mvmType == mMobileViewportManager->GetManagerType()) {
-    // We need one and we have one of the correct type, so we're done.
+    // We need one and we have one of the correct type, so we're done, unless
+    // it needs to pick up a new viewport size.
+    if (aUpdate == MobileViewportManagerUpdate::LayoutViewportSizeMayChange) {
+      ForceResizeReflowWithCurrentDimensions();
+    }
     return;
   }
 
@@ -12176,7 +12191,7 @@ void PresShell::MaybeRecreateMobileViewportManager(bool aAfterInitialization) {
     }
   }
 
-  if (aAfterInitialization) {
+  if (aUpdate != MobileViewportManagerUpdate::PresShellInit) {
     // Setting the initial viewport will trigger a reflow.
     if (mMobileViewportManager) {
       mMobileViewportManager->SetInitialViewport();
@@ -12191,8 +12206,7 @@ void PresShell::MaybeRecreateMobileViewportManager(bool aAfterInitialization) {
 }
 
 bool PresShell::UsesMobileViewportSizing() const {
-  return mMobileViewportManager &&
-         nsLayoutUtils::ShouldHandleMetaViewport(mDocument);
+  return mMobileViewportManager && ShouldSizeLayoutFromViewportInfo(mDocument);
 }
 
 /*
@@ -12241,7 +12255,6 @@ PresShell* PresShell::GetRootPresShell() const {
 
 void PresShell::AddSizeOfIncludingThis(nsWindowSizes& aSizes) const {
   MallocSizeOf mallocSizeOf = aSizes.mState.mMallocSizeOf;
-  mFrameArena.AddSizeOfExcludingThis(aSizes, Arena::ArenaKind::PresShell);
   aSizes.mLayoutPresShellSize += mallocSizeOf(this);
   if (mCaret) {
     aSizes.mLayoutPresShellSize += mCaret->SizeOfIncludingThis(mallocSizeOf);

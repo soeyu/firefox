@@ -2,6 +2,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+/** @import {Store} from "resource://newtab/lib/Store.sys.mjs" */
+
 const lazy = {};
 ChromeUtils.defineESModuleGetters(lazy, {
   AdsClient: "resource://newtab/lib/AdsClient.sys.mjs",
@@ -43,6 +45,7 @@ import {
   SPACE_IDS,
 } from "resource://newtab/common/PageLayoutVariants.mjs";
 
+import { isPlausibleSurfaceId } from "resource://newtab/common/SurfaceId.mjs";
 import { scoreItemInferred } from "resource://newtab/lib/InferredModel/GreedyContentRanker.mjs";
 
 const LOCAL_POPULAR_RERANK = false; // default behavior for local re-ranking
@@ -151,6 +154,9 @@ ChromeUtils.defineLazyGetter(lazy, "userAgent", () => {
 });
 
 export class DiscoveryStreamFeed {
+  /** @type {Store} */
+  store = null;
+
   constructor() {
     // Internal state for checking if we've intialized all our data
     this.loaded = false;
@@ -740,10 +746,11 @@ export class DiscoveryStreamFeed {
   /**
    * Returns true if data in the cache for a particular key has expired or is missing.
    *
-   * @param {object} cachedData data returned from cache.get()
-   * @param {string} key a cache key
-   * @param {string?} url for "feed" only, the URL of the feed.
-   * @param {boolean} is this check done at initial browser load
+   * @param {object} options
+   * @param {object} options.cachedData data returned from cache.get()
+   * @param {string} options.key a cache key
+   * @param {string?} options.url for "feed" only, the URL of the feed.
+   * @param {boolean} options.isStartup is this check done at initial browser load
    */
   isExpired({ cachedData, key, url, isStartup }) {
     const { spocs, feeds } = cachedData;
@@ -1124,9 +1131,6 @@ export class DiscoveryStreamFeed {
       return;
     }
 
-    // Reset the flag that indicates whether or not at least one API request
-    // was issued to fetch the component feed in `getComponentFeed()`.
-    this.componentFeedFetched = false;
     const { newFeedsPromises, newFeeds } = this.buildFeedPromises(
       DiscoveryStream.layout,
       isStartup,
@@ -1887,6 +1891,10 @@ export class DiscoveryStreamFeed {
 
     let feed = feeds ? feeds[feedUrl] : null;
     if (this.isExpired({ cachedData, key: "feed", url: feedUrl, isStartup })) {
+      // Read before the awaits below, alongside the request body, so the
+      // surfaceId is checked against what Merino was sent even if the region
+      // changes while the fetch is in flight.
+      const { locale, region } = this;
       const options = this.formatComponentFeedRequest(
         cachedData.sectionPersonalization
       );
@@ -2016,10 +2024,14 @@ export class DiscoveryStreamFeed {
         // Rotate is also the only place that uses these impressions.
         await this.cleanUpTopRecImpressions();
         const rotatedItems = await this.rotate(scoredItems);
-
         const { data: filteredResults } =
           await this.filterBlocked(rotatedItems);
-        this.componentFeedFetched = true;
+        let { surfaceId = "" } = feedResponse;
+        if (surfaceId && !isPlausibleSurfaceId(surfaceId, locale, region)) {
+          console.warn(`Ignoring implausible surfaceId: ${surfaceId}`);
+          Glean.newtabContent.surfaceIdRejected.record();
+          surfaceId = "";
+        }
         feed = {
           lastUpdated: Date.now(),
           personalized,
@@ -2029,7 +2041,7 @@ export class DiscoveryStreamFeed {
             sections,
             interestPicker: feedResponse.interestPicker || {},
             recommendations: filteredResults,
-            surfaceId: feedResponse.surfaceId || "",
+            surfaceId,
             status: "success",
           },
         };
@@ -2044,8 +2056,12 @@ export class DiscoveryStreamFeed {
     }
 
     // Still gated: this pref feeds utc_offset on the Merino request
-    if (prefs[PREF_PRIVATE_PING_ENABLED] && feed?.data?.surfaceId) {
-      this.store.dispatch(ac.SetPref(PREF_SURFACE_ID, feed.data.surfaceId));
+    if (prefs[PREF_PRIVATE_PING_ENABLED] && feed?.data) {
+      this.store.dispatch(
+        feed.data.surfaceId
+          ? ac.SetPref(PREF_SURFACE_ID, feed.data.surfaceId)
+          : { type: at.CLEAR_PREF, data: { name: PREF_SURFACE_ID } }
+      );
     }
 
     // If we have no feed at this point, both fetch and cache failed for some reason.
@@ -2094,9 +2110,14 @@ export class DiscoveryStreamFeed {
 
     let inferredInterests = null;
     if (inferredPersonalization && merinoOhttpEnabled) {
-      inferredInterests =
-        this.store.getState().InferredPersonalization
-          ?.coarsePrivateInferredInterests || {};
+      const personalization = this.store.getState().InferredPersonalization;
+      const useLocationVector =
+        prefs?.trainhopConfig?.locationInitInferred?.enabled &&
+        personalization?.shouldUseLocationVector &&
+        personalization.locationPrivateInferredInterests;
+      inferredInterests = useLocationVector
+        ? personalization.locationPrivateInferredInterests
+        : personalization?.coarsePrivateInferredInterests || {};
       if (prefs[PREF_INFERRED_INTERESTS_OVERRIDE]) {
         try {
           inferredInterests = JSON.parse(
@@ -2109,10 +2130,12 @@ export class DiscoveryStreamFeed {
     }
 
     const requestMetadata = {
-      utc_offset: prefs.inferredPersonalizationConfig
-        ?.normalized_time_zone_offset
-        ? lazy.NewTabUtils.getUtcOffset(prefs[PREF_SURFACE_ID])
-        : undefined,
+      // Without a surface, getUtcOffset would return the unclamped offset.
+      utc_offset:
+        prefs.inferredPersonalizationConfig?.normalized_time_zone_offset &&
+        prefs[PREF_SURFACE_ID]
+          ? lazy.NewTabUtils.getUtcOffset(prefs[PREF_SURFACE_ID])
+          : undefined,
       inferredInterests,
     };
     headers.append("content-type", "application/json");

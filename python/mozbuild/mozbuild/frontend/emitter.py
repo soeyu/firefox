@@ -36,6 +36,7 @@ from .data import (
     FinalTargetFiles,
     FinalTargetPreprocessedFiles,
     GeneratedFile,
+    Headers,
     HostDefines,
     HostLibrary,
     HostProgram,
@@ -1100,7 +1101,6 @@ class TreeMetadataEmitter(LoggingMixin):
             deps = list(extra_link_deps)
             for linkable in link_targets:
                 linkable.extra_link_deps = deps
-
         # Only emit sources if we have linkables defined in the same context.
         # Note the linkables are not emitted in this function, but much later,
         # after aggregation (because of e.g. USE_LIBS processing).
@@ -1121,7 +1121,13 @@ class TreeMetadataEmitter(LoggingMixin):
         sources = defaultdict(list)
         gen_sources = defaultdict(list)
         all_flags = {}
-        for symbol in ("SOURCES", "HOST_SOURCES", "UNIFIED_SOURCES", "WASM_SOURCES"):
+        for symbol in (
+            "SOURCES",
+            "HOST_SOURCES",
+            "UNIFIED_SOURCES",
+            "WASM_SOURCES",
+            "SOURCE_HEADERS",
+        ):
             srcs = sources[symbol]
             gen_srcs = gen_sources[symbol]
             context_srcs = context.get(symbol, [])
@@ -1142,7 +1148,7 @@ class TreeMetadataEmitter(LoggingMixin):
                 if symbol == "SOURCES":
                     context_flags = context_srcs[f]
                     if context_flags:
-                        all_flags[full_path] = context_flags
+                        all_flags[full_path] = (f, context_flags)
 
                 if isinstance(f, SourcePath) and not os.path.exists(full_path):
                     raise SandboxValidationError(
@@ -1172,7 +1178,7 @@ class TreeMetadataEmitter(LoggingMixin):
                 )
 
         no_pgo = context.get("NO_PGO")
-        no_pgo_sources = [f for f, flags in all_flags.items() if flags.no_pgo]
+        no_pgo_sources = [f for f, (_, flags) in all_flags.items() if flags.no_pgo]
         if no_pgo:
             if no_pgo_sources:
                 raise SandboxValidationError(
@@ -1194,6 +1200,7 @@ class TreeMetadataEmitter(LoggingMixin):
             ".c": set(),
             ".m": set(),
             ".mm": set(),
+            ".h": set([".h", ".H", ".hh", ".hpp"]),
             ".cpp": set([".cc", ".cxx"]),
             ".S": set(),
         }
@@ -1207,9 +1214,10 @@ class TreeMetadataEmitter(LoggingMixin):
 
         # A map from moz.build variables to the canonical suffixes of file
         # kinds that can be listed therein.
-        all_suffixes = list(suffix_map.keys())
+        source_suffixes = [s for s in suffix_map.keys() if s != ".h"]
         varmap = dict(
-            SOURCES=(Sources, all_suffixes),
+            SOURCES=(Sources, source_suffixes),
+            SOURCE_HEADERS=(Headers, [".h"]),
             HOST_SOURCES=(HostSources, [".c", ".cpp"]),
             UNIFIED_SOURCES=(UnifiedSources, [".c", ".mm", ".m", ".cpp"]),
         )
@@ -1277,10 +1285,20 @@ class TreeMetadataEmitter(LoggingMixin):
                 for suffix, srcs in ctxt_sources["WASM_SOURCES"].items():
                     wasm_linkable.sources[suffix] += srcs
 
-        for f, flags in sorted(all_flags.items()):
-            if flags.flags:
+        for f, (path, flags) in sorted(all_flags.items()):
+            if flags.flags or flags.object_deps:
                 ext = mozpath.splitext(f)[1]
-                yield PerSourceFlag(context, f, flags.flags)
+                deps = []
+                for d in flags.object_deps:
+                    p = Path(context, d)
+                    if isinstance(p, SourcePath) and not os.path.exists(p.full_path):
+                        raise SandboxValidationError(
+                            f"Dependency of {mozpath.basename(f)} does not exist: "
+                            f"{p.full_path}",
+                            context,
+                        )
+                    deps.append(p)
+                yield PerSourceFlag(context, path, flags.flags, deps)
 
         # If there are any C++ sources, set all the linkables defined here
         # to require the C++ linker.
@@ -1358,11 +1376,7 @@ class TreeMetadataEmitter(LoggingMixin):
                 ])
             context["OS_LIBS"].append("delayimp")
 
-        for v in ["CMFLAGS", "CMMFLAGS"]:
-            if v in context and context[v]:
-                passthru.variables["MOZBUILD_" + v] = context[v]
-
-        for v in ["CXXFLAGS", "CFLAGS"]:
+        for v in ["CXXFLAGS", "CFLAGS", "CMFLAGS", "CMMFLAGS"]:
             if v in context and context[v]:
                 computed_flags.resolve_flags("MOZBUILD_%s" % v, context[v])
 
@@ -1829,6 +1843,9 @@ class TreeMetadataEmitter(LoggingMixin):
                     "File %s from XPIDL_SOURCES does not exist" % idl.full_path,
                     context,
                 )
+
+        if not context.config.substs.get("COMPILE_ENVIRONMENT"):
+            return
 
         yield XPIDLModule(context, xpidl_module, context["XPIDL_SOURCES"])
 

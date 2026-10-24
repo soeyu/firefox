@@ -5,12 +5,13 @@
 import { actionCreators as ac, actionTypes as at } from "common/Actions.mjs";
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useSelector, batch } from "react-redux";
-import { useIntersectionObserver } from "../../../lib/utils";
 import { WIDGET_REGISTRY, resolveWidgetSize } from "common/WidgetsRegistry.mjs";
 import { WidgetCelebration } from "../WidgetCelebration";
 import { useWidgetCelebration } from "../useWidgetCelebration";
 import { SizeSubmenu } from "../SizeSubmenu";
+import { WidgetMenuButton } from "../WidgetMenuButton";
 import { WidgetMenuFooter } from "../WidgetMenuFooter";
+import { useWidgetTelemetry } from "../useWidgetTelemetry";
 
 const FOCUS_TIMER_CELEBRATION_GRADIENT_STOPS = [
   { offset: "0%", color: "var(--timer-celebration-leading)" },
@@ -152,7 +153,6 @@ export const FocusTimer = ({
   const activeMinutesRef = useRef(null);
   const activeSecondsRef = useRef(null);
   const arcRef = useRef(null);
-  const impressionFired = useRef(false);
 
   const timerType = useSelector(state => state.TimerWidget.timerType);
   const timerData = useSelector(state => state.TimerWidget);
@@ -189,33 +189,14 @@ export const FocusTimer = ({
     [handleUserInteraction]
   );
 
-  const handleIntersection = useCallback(() => {
-    if (impressionFired.current) {
-      return;
-    }
-    impressionFired.current = true;
-    batch(() => {
-      dispatch(
-        ac.AlsoToMain({
-          type: at.WIDGETS_TIMER_USER_IMPRESSION,
-        })
-      );
+  const { impressionRef, recordUserAction } = useWidgetTelemetry({
+    dispatch,
+    widget: timerWidget,
+    widgetSize,
+    legacyImpressionTypes: [at.WIDGETS_TIMER_USER_IMPRESSION],
+    legacyUserEventType: at.WIDGETS_TIMER_USER_EVENT,
+  });
 
-      const telemetryData = {
-        widget_name: "focus_timer",
-        widget_size: widgetSize,
-      };
-
-      dispatch(
-        ac.AlsoToMain({
-          type: at.WIDGETS_IMPRESSION,
-          data: telemetryData,
-        })
-      );
-    });
-  }, [dispatch, widgetSize]);
-
-  const timerRef = useIntersectionObserver(handleIntersection);
   const widgetCelebrationRef = useRef(null);
   const {
     celebrationFrame,
@@ -268,28 +249,11 @@ export const FocusTimer = ({
         })
       );
 
-      dispatch(
-        ac.OnlyToMain({
-          type: at.WIDGETS_TIMER_USER_EVENT,
-          data: { userAction },
-        })
-      );
-
-      dispatch(
-        ac.OnlyToMain({
-          type: at.WIDGETS_USER_EVENT,
-          data: {
-            widget_name: "focus_timer",
-            widget_source: "widget",
-            user_action: userAction,
-            widget_size: widgetSize,
-          },
-        })
-      );
+      recordUserAction(userAction, { source: "widget", legacy: true });
     });
 
     completeCelebration();
-  }, [completeCelebration, dispatch, resetProgressCircle, widgetSize]);
+  }, [completeCelebration, dispatch, resetProgressCircle, recordUserAction]);
 
   const showSystemNotifications =
     prefs["widgets.focusTimer.showSystemNotifications"];
@@ -311,24 +275,10 @@ export const FocusTimer = ({
         })
       );
 
-      dispatch(
-        ac.OnlyToMain({
-          type: at.WIDGETS_TIMER_USER_EVENT,
-          data: { userAction: USER_ACTION_TYPES.TIMER_END },
-        })
-      );
-
-      dispatch(
-        ac.OnlyToMain({
-          type: at.WIDGETS_USER_EVENT,
-          data: {
-            widget_name: "focus_timer",
-            widget_source: "widget",
-            user_action: USER_ACTION_TYPES.TIMER_END,
-            widget_size: widgetSize,
-          },
-        })
-      );
+      recordUserAction(USER_ACTION_TYPES.TIMER_END, {
+        source: "widget",
+        legacy: true,
+      });
     });
 
     completingTypeRef.current = timerType;
@@ -429,26 +379,10 @@ export const FocusTimer = ({
           })
         );
 
-        dispatch(
-          ac.OnlyToMain({
-            type: at.WIDGETS_TIMER_USER_EVENT,
-            data: { userAction: USER_ACTION_TYPES.TIMER_SET },
-          })
-        );
-
-        const telemetryData = {
-          widget_name: "focus_timer",
-          widget_source: "widget",
-          user_action: USER_ACTION_TYPES.TIMER_SET,
-          widget_size: widgetSize,
-        };
-
-        dispatch(
-          ac.OnlyToMain({
-            type: at.WIDGETS_USER_EVENT,
-            data: telemetryData,
-          })
-        );
+        recordUserAction(USER_ACTION_TYPES.TIMER_SET, {
+          source: "widget",
+          legacy: true,
+        });
       });
     }
     handleTimerInteraction();
@@ -470,26 +404,10 @@ export const FocusTimer = ({
           })
         );
 
-        dispatch(
-          ac.OnlyToMain({
-            type: at.WIDGETS_TIMER_USER_EVENT,
-            data: { userAction: USER_ACTION_TYPES.TIMER_PLAY },
-          })
-        );
-
-        const telemetryData = {
-          widget_name: "focus_timer",
-          widget_source: "widget",
-          user_action: USER_ACTION_TYPES.TIMER_PLAY,
-          widget_size: widgetSize,
-        };
-
-        dispatch(
-          ac.OnlyToMain({
-            type: at.WIDGETS_USER_EVENT,
-            data: telemetryData,
-          })
-        );
+        recordUserAction(USER_ACTION_TYPES.TIMER_PLAY, {
+          source: "widget",
+          legacy: true,
+        });
       });
     } else if (isRunning) {
       // calculated to get the new baseline of the timer when it starts or resumes
@@ -505,26 +423,10 @@ export const FocusTimer = ({
           })
         );
 
-        dispatch(
-          ac.OnlyToMain({
-            type: at.WIDGETS_TIMER_USER_EVENT,
-            data: { userAction: USER_ACTION_TYPES.TIMER_PAUSE },
-          })
-        );
-
-        const telemetryData = {
-          widget_name: "focus_timer",
-          widget_source: "widget",
-          user_action: USER_ACTION_TYPES.TIMER_PAUSE,
-          widget_size: widgetSize,
-        };
-
-        dispatch(
-          ac.OnlyToMain({
-            type: at.WIDGETS_USER_EVENT,
-            data: telemetryData,
-          })
-        );
+        recordUserAction(USER_ACTION_TYPES.TIMER_PAUSE, {
+          source: "widget",
+          legacy: true,
+        });
       });
     }
     handleTimerInteraction();
@@ -549,26 +451,10 @@ export const FocusTimer = ({
         })
       );
 
-      dispatch(
-        ac.OnlyToMain({
-          type: at.WIDGETS_TIMER_USER_EVENT,
-          data: { userAction: USER_ACTION_TYPES.TIMER_RESET },
-        })
-      );
-
-      const telemetryData = {
-        widget_name: "focus_timer",
-        widget_source: "widget",
-        user_action: USER_ACTION_TYPES.TIMER_RESET,
-        widget_size: widgetSize,
-      };
-
-      dispatch(
-        ac.OnlyToMain({
-          type: at.WIDGETS_USER_EVENT,
-          data: telemetryData,
-        })
-      );
+      recordUserAction(USER_ACTION_TYPES.TIMER_RESET, {
+        source: "widget",
+        legacy: true,
+      });
     });
 
     // Reset progress value and gradient arc on the progress circle
@@ -594,26 +480,10 @@ export const FocusTimer = ({
           })
         );
 
-        dispatch(
-          ac.OnlyToMain({
-            type: at.WIDGETS_TIMER_USER_EVENT,
-            data: { userAction: USER_ACTION_TYPES.TIMER_PAUSE },
-          })
-        );
-
-        const pauseTelemetryData = {
-          widget_name: "focus_timer",
-          widget_source: "widget",
-          user_action: USER_ACTION_TYPES.TIMER_PAUSE,
-          widget_size: widgetSize,
-        };
-
-        dispatch(
-          ac.OnlyToMain({
-            type: at.WIDGETS_USER_EVENT,
-            data: pauseTelemetryData,
-          })
-        );
+        recordUserAction(USER_ACTION_TYPES.TIMER_PAUSE, {
+          source: "widget",
+          legacy: true,
+        });
 
         // Sets the current timer type so it persists when opening a new tab
         dispatch(
@@ -630,26 +500,10 @@ export const FocusTimer = ({
             ? USER_ACTION_TYPES.TIMER_TOGGLE_FOCUS
             : USER_ACTION_TYPES.TIMER_TOGGLE_BREAK;
 
-        dispatch(
-          ac.OnlyToMain({
-            type: at.WIDGETS_TIMER_USER_EVENT,
-            data: { userAction: toggleUserAction },
-          })
-        );
-
-        const toggleTelemetryData = {
-          widget_name: "focus_timer",
-          widget_source: "widget",
-          user_action: toggleUserAction,
-          widget_size: widgetSize,
-        };
-
-        dispatch(
-          ac.OnlyToMain({
-            type: at.WIDGETS_USER_EVENT,
-            data: toggleTelemetryData,
-          })
-        );
+        recordUserAction(toggleUserAction, {
+          source: "widget",
+          legacy: true,
+        });
       });
       handleTimerInteraction();
     },
@@ -658,7 +512,7 @@ export const FocusTimer = ({
       startTime,
       timerType,
       dispatch,
-      widgetSize,
+      recordUserAction,
       handleTimerInteraction,
     ]
   );
@@ -727,26 +581,10 @@ export const FocusTimer = ({
           })
         );
 
-        dispatch(
-          ac.OnlyToMain({
-            type: at.WIDGETS_TIMER_USER_EVENT,
-            data: { userAction: USER_ACTION_TYPES.TIMER_PAUSE },
-          })
-        );
-
-        const telemetryData = {
-          widget_name: "focus_timer",
-          widget_source: "widget",
-          user_action: USER_ACTION_TYPES.TIMER_PAUSE,
-          widget_size: widgetSize,
-        };
-
-        dispatch(
-          ac.OnlyToMain({
-            type: at.WIDGETS_USER_EVENT,
-            data: telemetryData,
-          })
-        );
+        recordUserAction(USER_ACTION_TYPES.TIMER_PAUSE, {
+          source: "widget",
+          legacy: true,
+        });
       });
     }
 
@@ -784,21 +622,14 @@ export const FocusTimer = ({
             data: { name: PREF_FOCUS_TIMER_SIZE, value: size },
           })
         );
-        dispatch(
-          ac.OnlyToMain({
-            type: at.WIDGETS_USER_EVENT,
-            data: {
-              widget_name: "focus_timer",
-              widget_source: "context_menu",
-              user_action: USER_ACTION_TYPES.CHANGE_SIZE,
-              action_value: size,
-              widget_size: size,
-            },
-          })
-        );
+        recordUserAction(USER_ACTION_TYPES.CHANGE_SIZE, {
+          source: "context_menu",
+          value: size,
+          size,
+        });
       });
     },
-    [dispatch]
+    [dispatch, recordUserAction]
   );
 
   // @nova-cleanup(remove-conditional): Keep this function. Its only classic
@@ -818,28 +649,14 @@ export const FocusTimer = ({
           })
         );
 
-        dispatch(
-          ac.OnlyToMain({
-            type: at.WIDGETS_TIMER_USER_EVENT,
-            data: { userAction: USER_ACTION_TYPES.TIMER_SET },
-          })
-        );
-
-        dispatch(
-          ac.OnlyToMain({
-            type: at.WIDGETS_USER_EVENT,
-            data: {
-              widget_name: "focus_timer",
-              widget_source: "widget",
-              user_action: USER_ACTION_TYPES.TIMER_SET,
-              widget_size: widgetSize,
-            },
-          })
-        );
+        recordUserAction(USER_ACTION_TYPES.TIMER_SET, {
+          source: "widget",
+          legacy: true,
+        });
       });
       handleTimerInteraction();
     },
-    [dispatch, duration, timerType, widgetSize, handleTimerInteraction]
+    [dispatch, duration, timerType, recordUserAction, handleTimerInteraction]
   );
 
   // @nova-cleanup(remove-conditional): Keep this function; it drives the Nova
@@ -874,31 +691,17 @@ export const FocusTimer = ({
         })
       );
 
-      dispatch(
-        ac.OnlyToMain({
-          type: at.WIDGETS_TIMER_USER_EVENT,
-          data: { userAction: USER_ACTION_TYPES.TIMER_SET },
-        })
-      );
-
-      dispatch(
-        ac.OnlyToMain({
-          type: at.WIDGETS_USER_EVENT,
-          data: {
-            widget_name: "focus_timer",
-            widget_source: "widget",
-            user_action: USER_ACTION_TYPES.TIMER_SET,
-            widget_size: widgetSize,
-          },
-        })
-      );
+      recordUserAction(USER_ACTION_TYPES.TIMER_SET, {
+        source: "widget",
+        legacy: true,
+      });
     });
     handleTimerInteraction();
   }, [
     dispatch,
     duration,
     timerType,
-    widgetSize,
+    recordUserAction,
     handleTimerInteraction,
     timeLeft,
   ]);
@@ -999,7 +802,7 @@ export const FocusTimer = ({
       // @nova-cleanup(remove-conditional): Remove novaEnabled check; always apply col-4 and size class after Nova ships
       className={`focus-timer widget ${novaEnabled ? `col-4 ${widgetSize}-widget` : ""} ${isSmallSize ? "is-small" : ""} ${isMaximized ? "is-maximized" : ""}${isComplete ? " is-complete" : ""}${isCelebrating ? " is-celebrating" : ""}${hasProgressed && !isComplete ? " is-active" : ""}`}
       ref={el => {
-        timerRef.current = [el];
+        impressionRef(el);
         widgetCelebrationRef.current = el;
       }}
     >
@@ -1025,12 +828,10 @@ export const FocusTimer = ({
       <div className="newtab-widget-timer-notification-title-wrapper">
         <h2 data-l10n-id="newtab-widget-timer-notification-title"></h2>
         <div className="focus-timer-context-menu-wrapper">
-          <moz-button
+          <WidgetMenuButton
             className="focus-timer-context-menu-button"
-            iconSrc="chrome://global/skin/icons/more.svg"
             menuId="focus-timer-context-menu"
-            type="ghost"
-            data-l10n-id="newtab-widget-timer-menu-button"
+            l10nId="newtab-widget-timer-open-menu-button"
           />
           <panel-list
             className="panel-list-no-icons"

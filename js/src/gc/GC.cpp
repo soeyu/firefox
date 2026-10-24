@@ -250,6 +250,7 @@
 #include "js/HeapAPI.h"  // JS::GCCellPtr
 #include "js/Printer.h"
 #include "js/SliceBudget.h"
+#include "util/Denormals.h"
 #include "util/DifferentialTesting.h"
 #include "vm/BigIntType.h"
 #include "vm/EnvironmentObject.h"
@@ -511,7 +512,7 @@ GCRuntime::GCRuntime(JSRuntime* rt)
       incrementalGCEnabled(TuningDefaults::IncrementalGCEnabled),
       perZoneGCEnabled(TuningDefaults::PerZoneGCEnabled),
       numActiveZoneIters(0),
-      grayBitsValid(true),
+      grayBitsInvalid(0),
       majorGCTriggerReason(JS::GCReason::NO_REASON),
       minorGCNumber(0),
       majorGCNumber(0),
@@ -2724,6 +2725,12 @@ void GCRuntime::purgeRuntime() {
 
 bool GCRuntime::shouldRealmPreserveJitCode(Realm* realm,
                                            const TimeStamp& currentTime) {
+  // If the embedder hinted that this realm is dying, don't preserve its JIT
+  // code.
+  if (realm->isDyingHint()) {
+    return false;
+  }
+
   // The gcPreserveJitCode testing function was used.
   if (alwaysPreserveCode) {
     return true;
@@ -2955,30 +2962,35 @@ void GCRuntime::setRealmPreserveJitCodeFlags(Zone* zone,
     return;
   }
 
-  // We're able to preserve JIT code, so check the heuristics for each realm.
-  bool preservingAllRealms = true;
+  // If any realm in this zone should preserve its JIT code, we preserve JIT
+  // code for all non-dying realms in the zone.
+  bool preserveCode = false;
   for (RealmsInZoneIter r(zone); !r.done(); r.next()) {
     if (shouldRealmPreserveJitCode(r, currentTime)) {
-      r->jitRealm().setPreservingCode(true);
-    } else {
-      preservingAllRealms = false;
+      preserveCode = true;
+      break;
     }
   }
-  if (preservingAllRealms) {
+
+  // Also preserve JIT code if there's a JIT activation for this zone on the
+  // stack.
+  if (!preserveCode) {
+    JSContext* cx = rt->mainContextFromOwnThread();
+    for (jit::JitActivationIterator iter(cx); !iter.done(); ++iter) {
+      if (iter->compartment()->zone() == zone) {
+        preserveCode = true;
+        break;
+      }
+    }
+  }
+
+  if (!preserveCode) {
     return;
   }
 
-  // Also preserve JIT code for realms that have JS JIT frames on the stack.
-  JSContext* cx = rt->mainContextFromOwnThread();
-  for (jit::JitActivationIterator iter(cx); !iter.done(); ++iter) {
-    if (iter->compartment()->zone() != zone) {
-      continue;
-    }
-    for (OnlyJSJitFrameIter frames(iter); !frames.done(); ++frames) {
-      const jit::JSJitFrameIter& frame = frames.frame();
-      if (frame.isScripted()) {
-        frame.script()->realm()->jitRealm().setPreservingCode(true);
-      }
+  for (RealmsInZoneIter r(zone); !r.done(); r.next()) {
+    if (!r->isDyingHint()) {
+      r->jitRealm().setPreservingCode(true);
     }
   }
 }
@@ -3904,6 +3916,7 @@ void GCRuntime::checkGCStateNotInUse() {
   MOZ_ASSERT(!hasDelayedMarking());
   MOZ_ASSERT(!hasAnyDeferredWeakMaps());
   MOZ_ASSERT(!didYieldAtEndOfMarkPhase);
+  MOZ_ASSERT(!(grayBitsInvalid & GrayBitsInvalidatedInCurrentGC));
 
   MOZ_ASSERT(!disableBarriersForSweeping);
   MOZ_ASSERT(foregroundFinalizedArenas.ref().isNothing());
@@ -4136,11 +4149,12 @@ GCRuntime::IncrementalResult GCRuntime::resetIncrementalGC(
         zone->arenas.mergeArenasFromCollectingLists();
       }
 
+      incrementalState = State::NotActive;
+
       // The gray marking state may not be valid. We don't do gray unmarking
       // when zones are in the Prepare state.
       setGrayBitsInvalid();
 
-      incrementalState = State::NotActive;
       checkGCStateNotInUse();
       break;
 
@@ -4166,11 +4180,6 @@ GCRuntime::IncrementalResult GCRuntime::resetIncrementalGC(
       for (GCCompartmentsIter c(rt); !c.done(); c.next()) {
         resetGrayList(c);
       }
-
-      // The gray marking state may not be valid. We depend on the mark stack to
-      // do gray unmarking in zones that are being marked by the GC and we've
-      // just cancelled that part way through.
-      setGrayBitsInvalid();
 
       // Wait for sweeping of nursery owned sized allocations to finish.
       nursery().joinSweepTask();
@@ -4199,6 +4208,11 @@ GCRuntime::IncrementalResult GCRuntime::resetIncrementalGC(
 
       didYieldAtEndOfMarkPhase = false;
       incrementalState = State::Finish;
+
+      // The gray marking state may not be valid. We depend on the mark stack to
+      // do gray unmarking in zones that are being marked by the GC and we've
+      // just cancelled that part way through.
+      setGrayBitsInvalid();
 
 #ifdef DEBUG
       for (auto& marker : markers) {
@@ -4249,9 +4263,12 @@ GCRuntime::IncrementalResult GCRuntime::resetIncrementalGC(
 }
 
 void GCRuntime::setGrayBitsInvalid() {
-  waitBackgroundSweepEnd();
-  grayBitsValid = false;
-  atomReferences.unmarkAllGrayReferences(this);
+  uint32_t bitsToSet = GrayBitsInvalid;
+  if (state() >= State::MarkRoots && state() <= State::Sweep) {
+    // This is cleared in GCRuntime::endSweepPhase.
+    bitsToSet |= GrayBitsInvalidatedInCurrentGC;
+  }
+  grayBitsInvalid |= bitsToSet;
 }
 
 void GCRuntime::disableIncrementalBarriers() {
@@ -5047,6 +5064,9 @@ MOZ_NEVER_INLINE GCRuntime::IncrementalResult GCRuntime::gcCycle(
   // This reason is used internally. See below.
   MOZ_ASSERT(reason != JS::GCReason::RESET);
 
+  // We should be running with denormals enabled.
+  MOZ_ASSERT(!DenormalsDisabled());
+
   // Background finalization and decommit are finished by definition before we
   // can start a new major GC.  Background allocation may still be running, but
   // that's OK because chunk pools are protected by the GC lock.
@@ -5681,6 +5701,10 @@ MOZ_COLD bool GCRuntime::waitForBackgroundTasksOnAllocFailure() {
   }
 
   if (nursery().joinDecommitTask()) {
+    waited = true;
+  }
+
+  if (unmarkTask.join()) {
     waited = true;
   }
 

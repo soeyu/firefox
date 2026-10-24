@@ -277,6 +277,85 @@ describe("<BaseContent>", () => {
     });
   });
 
+  it("opens the widgets subpanel for #customize-widgets with Nova on", () => {
+    globalThis.location.hash = "#customize-widgets";
+    const dispatch = jest.fn();
+    const ref = React.createRef();
+    renderBaseContent(
+      {
+        ...DEFAULT_PROPS,
+        dispatch,
+        Prefs: {
+          values: { "nova.enabled": true, "widgets.system.enabled": true },
+        },
+      },
+      ref
+    );
+
+    expect(dispatch).toHaveBeenCalledWith({ type: at.SHOW_PERSONALIZE });
+    expect(ref.current.state.activeSubpanel).toBe(CUSTOMIZE_SUBPANELS.WIDGETS);
+  });
+
+  it("opens only the customize panel for #customize-widgets with Nova on and the widgets container hidden", () => {
+    globalThis.location.hash = "#customize-widgets";
+    const dispatch = jest.fn();
+    const ref = React.createRef();
+    renderBaseContent(
+      {
+        ...DEFAULT_PROPS,
+        dispatch,
+        Prefs: {
+          values: { "nova.enabled": true, "widgets.system.enabled": false },
+        },
+      },
+      ref
+    );
+
+    expect(dispatch).toHaveBeenCalledWith({ type: at.SHOW_PERSONALIZE });
+    expect(ref.current.state.activeSubpanel).toBeNull();
+  });
+
+  it("opens only the customize panel for #customize-widgets with Nova off", () => {
+    globalThis.location.hash = "#customize-widgets";
+    const dispatch = jest.fn();
+    const ref = React.createRef();
+    renderBaseContent(
+      {
+        ...DEFAULT_PROPS,
+        dispatch,
+        Prefs: { values: { "nova.enabled": false } },
+      },
+      ref
+    );
+
+    expect(dispatch).toHaveBeenCalledWith({ type: at.SHOW_PERSONALIZE });
+    expect(ref.current.state.activeSubpanel).toBeNull();
+  });
+
+  it("opens the widgets subpanel when the hash changes to #customize-widgets on an open page", () => {
+    const dispatch = jest.fn();
+    const ref = React.createRef();
+    renderBaseContent(
+      {
+        ...DEFAULT_PROPS,
+        dispatch,
+        Prefs: {
+          values: { "nova.enabled": true, "widgets.system.enabled": true },
+        },
+      },
+      ref
+    );
+    expect(ref.current.state.activeSubpanel).toBeNull();
+
+    globalThis.location.hash = "#customize-widgets";
+    act(() => {
+      globalThis.dispatchEvent(new HashChangeEvent("hashchange"));
+    });
+
+    expect(dispatch).toHaveBeenCalledWith({ type: at.SHOW_PERSONALIZE });
+    expect(ref.current.state.activeSubpanel).toBe(CUSTOMIZE_SUBPANELS.WIDGETS);
+  });
+
   it("closeSubpanels closes the open subpanel and clears the wallpaper category", () => {
     const ref = React.createRef();
     renderBaseContent(DEFAULT_PROPS, ref);
@@ -1656,6 +1735,7 @@ function renderNova(overrides = {}, stateOverrides = {}) {
       values: {
         ...INITIAL_STATE.Prefs.values,
         "nova.enabled": true,
+        region: "US",
         showSearch: false,
         "feeds.topsites": false,
         "feeds.section.topstories": false,
@@ -1671,8 +1751,6 @@ function renderNova(overrides = {}, stateOverrides = {}) {
         "widgets.focusTimer.enabled": false,
         "widgets.system.clocks.enabled": false,
         "widgets.clocks.enabled": false,
-        "widgets.system.sportsWidget.enabled": false,
-        "widgets.sportsWidget.enabled": false,
         ...overrides,
       },
     },
@@ -1758,8 +1836,6 @@ describe("<Base> Nova hides Logo when no sections are enabled", () => {
       "widgets.clocks.enabled": true,
       "widgets.system.focusTimer.enabled": true,
       "widgets.focusTimer.enabled": true,
-      "widgets.system.sportsWidget.enabled": true,
-      "widgets.sportsWidget.enabled": true,
     });
     expect(
       container.querySelector(".logo-and-wordmark-wrapper")
@@ -1777,8 +1853,6 @@ describe("<Base> Nova hides Logo when no sections are enabled", () => {
       "widgets.clocks.enabled": true,
       "widgets.system.focusTimer.enabled": true,
       "widgets.focusTimer.enabled": true,
-      "widgets.system.sportsWidget.enabled": true,
-      "widgets.sportsWidget.enabled": true,
     });
     expect(
       container.querySelector(".container.nova-enabled.logo-in-content")
@@ -1902,6 +1976,48 @@ describe("<Base> Nova logo placement with the search bar in variant B", () => {
         ".sidebar-inline-start .logo-and-wordmark-wrapper"
       )
     ).toBeInTheDocument();
+    unmount();
+  });
+
+  it.each([
+    ["the page has nothing else", {}],
+    ["shortcuts have two rows", { "feeds.topsites": true, topSitesRows: 2 }],
+  ])("lowers the search when %s", (_label, prefs) => {
+    const { container, unmount } = renderNova(
+      { showSearch: true, ...prefs },
+      searchComponent({ "variant-b": "" })
+    );
+    expect(
+      container.querySelector(".container.nova-enabled.search-lowered")
+    ).toBeInTheDocument();
+    unmount();
+  });
+
+  it.each([
+    ["shortcuts have three rows", { "feeds.topsites": true, topSitesRows: 3 }],
+    [
+      "stories are on",
+      { "feeds.section.topstories": true, "feeds.system.topstories": true },
+    ],
+  ])("keeps the search at the top when %s", (_label, prefs) => {
+    const { container, unmount } = renderNova(
+      { showSearch: true, ...prefs },
+      searchComponent({ "variant-b": "" })
+    );
+    expect(
+      container.querySelector(".container.nova-enabled.search-lowered")
+    ).not.toBeInTheDocument();
+    unmount();
+  });
+
+  it("doesn't lower the search when the Logo is centered", () => {
+    const { container, unmount } = renderNova(
+      { showSearch: true },
+      searchComponent({ "variant-a": "" })
+    );
+    expect(
+      container.querySelector(".container.nova-enabled.search-lowered")
+    ).not.toBeInTheDocument();
     unmount();
   });
 

@@ -25,6 +25,7 @@ class PrivacyReportNotificationScheduler(
     private val applicationContext: Context,
     private val settings: Settings,
 ) : DefaultLifecycleObserver {
+    private var isScheduled = false
 
     override fun onResume(owner: LifecycleOwner) {
         super.onResume(owner)
@@ -46,11 +47,13 @@ class PrivacyReportNotificationScheduler(
         // If the tracking protection feature is disabled then don't schedule the notification.
         if (!settings.shouldUseTrackingProtection) {
             PrivacyReportNotificationWorker.cancel(applicationContext)
+            isScheduled = false
             return
         }
 
         if (!settings.weeklyPrivacyNotificationFeatureFlagEnabled) {
             PrivacyReportNotificationWorker.cancel(applicationContext)
+            isScheduled = false
             return
         }
 
@@ -62,13 +65,24 @@ class PrivacyReportNotificationScheduler(
             ensurePrivacyReportNotificationChannelExists(applicationContext)
         }
 
-        val availability = privacyReportNotificationAvailability(applicationContext)
+        val availability = privacyReportNotificationAvailability(notificationManager)
         TrackingProtection.privacyReportNotificationAvailability.set(availability.telemetryId)
 
         if (availability == PrivacyReportNotificationAvailability.AVAILABLE) {
+            // Users who never completed onboarding are not eligible for this feature.
+            if (settings.onboardingCompletedTimestamp < 0) {
+                return
+            }
+
+            if (isScheduled) {
+                return
+            }
+
             PrivacyReportNotificationWorker.schedule(applicationContext, settings, dateTimeProvider)
+            isScheduled = true
         } else {
             PrivacyReportNotificationWorker.cancel(applicationContext)
+            isScheduled = false
         }
     }
 }

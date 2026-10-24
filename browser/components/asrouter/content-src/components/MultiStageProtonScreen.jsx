@@ -22,6 +22,7 @@ import { InstallButton } from "./InstallButton";
 import { SubmenuButton } from "./SubmenuButton";
 
 const DEFAULT_AUTO_ADVANCE_MS = 20000;
+const MAX_TIMEOUT_MS = 2 ** 31 - 1;
 const CORNER_IMAGE_POSITIONS = new Set([
   "bottom-left",
   "bottom-right",
@@ -75,6 +76,47 @@ function resolveDirectionalImage(image) {
   return isRTL && image?.rtl ? { ...image, ...image.rtl } : image;
 }
 
+/**
+ * Dismisses the message once the screen has been shown for `autoDismiss.after`
+ * milliseconds. The countdown only runs while the page is visible and restarts
+ * when it becomes visible again, so the screen can't time out while invisible
+ * in the background.
+ */
+function useAutoDismiss(autoDismiss, messageId) {
+  const after = autoDismiss?.after;
+  useEffect(() => {
+    if (!Number.isFinite(after) || after < 0 || after > MAX_TIMEOUT_MS) {
+      return undefined;
+    }
+
+    let timer = null;
+    let dismissed = false;
+    const dismiss = () => {
+      dismissed = true;
+      MultiStageUtils.sendActionTelemetry(
+        messageId,
+        "auto_dismiss",
+        "AUTO_DISMISS"
+      );
+      window.AWFinish();
+    };
+    const restartCountdown = () => {
+      clearTimeout(timer);
+      timer =
+        !dismissed && document.visibilityState === "visible"
+          ? setTimeout(dismiss, after)
+          : null;
+    };
+
+    restartCountdown();
+    document.addEventListener("visibilitychange", restartCountdown);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("visibilitychange", restartCountdown);
+    };
+  }, [after, messageId]);
+}
+
 export const MultiStageProtonScreen = props => {
   const {
     autoAdvance,
@@ -84,6 +126,7 @@ export const MultiStageProtonScreen = props => {
     navigate,
     order,
   } = props;
+  useAutoDismiss(props.autoDismiss, messageId);
   useEffect(() => {
     if (!autoAdvance && !advanceOnExperimentLoad) {
       return () => {};
@@ -630,6 +673,40 @@ export class ProtonScreen extends React.PureComponent {
     );
   }
 
+  renderLastCardImage(content) {
+    const { width, height, marginBlock, marginInline, ...image } =
+      content.center_image ?? {};
+    return (
+      <div
+        className="last-card-image"
+        style={{
+          "--last-card-image-width": width,
+          "--last-card-image-height": height,
+          "--last-card-picture-margin-block": marginBlock,
+          "--last-card-picture-margin-inline": marginInline,
+        }}
+      >
+        {content.center_image
+          ? this.renderPicture({ ...image, className: "center-image" })
+          : null}
+      </div>
+    );
+  }
+
+  // Draws the front card plus one back card for each screen still to come, up
+  // to two.
+  renderCardStackLayers() {
+    const { order = 0, totalNumberOfScreens = 1 } = this.props;
+    const cardsBehind = totalNumberOfScreens - order - 1;
+    return (
+      <>
+        <div className="card-stack-front" />
+        {cardsBehind >= 1 ? <div className="card-stack-layer-1" /> : null}
+        {cardsBehind >= 2 ? <div className="card-stack-layer-2" /> : null}
+      </>
+    );
+  }
+
   renderCornerImage(anchor) {
     const cornerImage = this.props.content.corner_image;
     const position = resolveCornerImagePosition(cornerImage.position);
@@ -1121,7 +1198,18 @@ export class ProtonScreen extends React.PureComponent {
           this.mainContentHeader = input;
         }}
         no-rdm={content.no_rdm ? "" : null}
+        // eslint-disable-next-line react/no-unknown-property
+        initial-card={
+          content.position === "card-stack" &&
+          this.props.isFirstScreen &&
+          this.props.previousOrder < 0
+            ? ""
+            : null
+        }
       >
+        {content.position === "card-stack"
+          ? this.renderCardStackLayers()
+          : null}
         {cornerImageAnchor === "screen"
           ? this.renderCornerImage("screen")
           : null}
@@ -1210,7 +1298,9 @@ export class ProtonScreen extends React.PureComponent {
                   className={`welcome-text ${content.title_style || ""}`}
                 >
                   {content.title ? this.renderTitle(content) : null}
-
+                  {content.layout === "last-card"
+                    ? this.renderLastCardImage(content)
+                    : null}
                   {content.subtitle ? (
                     <Localized text={content.subtitle}>
                       <h2
@@ -1476,8 +1566,9 @@ export const screenContentShape = {
   width: PropTypes.string,
   // The callout card padding as a CSS value.
   padding: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
-  // Used when a single row with a more inline layout is desired. Works well in
-  // tandem with title_logo.
+  // A layout variant for the screen. 'inline' is a single row layout that
+  // works well in tandem with title_logo. 'last-card' is the final card-stack
+  // screen, with the title and subtitle split around a centered image slot.
   layout: PropTypes.string,
   // If true, adds a colorful gradient border to the screen. This is only
   // supported for screens with 'hide_arrow' set to true. There is no effect
@@ -1592,6 +1683,40 @@ export const screenContentShape = {
       delay: PropTypes.string,
     }),
   }),
+  // An optional image shown in the center image slot of the 'last-card'
+  // layout, revealed once the text split animation completes.
+  center_image: PropTypes.shape({
+    // The image URL.
+    imageURL: PropTypes.string,
+    // The dark mode image URL.
+    darkModeImageURL: PropTypes.string,
+    // The reduced motion image URL.
+    reducedMotionImageURL: PropTypes.string,
+    // The dark mode reduced motion image URL.
+    darkModeReducedMotionImageURL: PropTypes.string,
+    // Right-to-left replacements for any of the URLs above, applied over them
+    // when the document is RTL. Any keys ommitted keep their base values.
+    rtl: PropTypes.shape({
+      imageURL: PropTypes.string,
+      darkModeImageURL: PropTypes.string,
+      reducedMotionImageURL: PropTypes.string,
+      darkModeReducedMotionImageURL: PropTypes.string,
+    }),
+    // The <img> alt text.
+    alt: PropTypes.oneOfType([PropTypes.string, PropTypes.object]),
+    // The CSS width of the image slot. The split animation and margins adapt
+    // to it. Defaults to 120px.
+    width: PropTypes.string,
+    // The CSS height of the image slot. Defaults to 120px.
+    height: PropTypes.string,
+    // The CSS style overriding the marginBlock property. Useful for aligning
+    // the image's focal point with the text. Only applies when the text is
+    // split around the image, not when stacked at narrow breakpoints.
+    marginBlock: PropTypes.string,
+    // The CSS style overriding the marginInline property. Only applies when
+    // the text is split around the image, not when stacked at narrow breakpoints.
+    marginInline: PropTypes.string,
+  }),
   // The text for the headline.
   title: localizableThingPropTypes,
   // An optional object representing an icon to show next to the title.
@@ -1671,7 +1796,11 @@ export const screenContentShape = {
       // CSS overrides of the tile container. Any CSS properties starting with
       // '--' are also allowed.
       style: PropTypes.object,
-      // Accessible name for the optional carousel pill navigation.
+      // Optional, currently for single-select tiles only. Visual layout for
+      // the tile's items.
+      layout: PropTypes.oneOf(["carousel"]),
+      // Optional, currently for single-select tiles only. Accessible name for
+      // the carousel pill navigation.
       pill_nav_label: localizableThingPropTypes,
       // Array of tile configurations needed for the tile type.
       data: PropTypes.oneOfType([PropTypes.array, PropTypes.object]),

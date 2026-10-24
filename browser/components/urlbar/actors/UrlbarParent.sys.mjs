@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 import { UrlbarShared } from "chrome://browser/content/urlbar/UrlbarShared.mjs";
-import * as UrlbarContentUtils from "chrome://browser/content/urlbar/UrlbarContentUtils.mjs";
+import { UrlbarContentUtils } from "chrome://browser/content/urlbar/UrlbarContentUtils.mjs";
 
 const lazy = {};
 
@@ -141,6 +141,9 @@ export class UrlbarParent extends JSWindowActorParent {
       case "RecordZeroPrefix":
         controller.recordZeroPrefix(message.data.kind);
         break;
+      case "RecordCanonization":
+        controller.recordCanonization();
+        break;
       case "CheckKeywordURIFixup":
         controller.checkKeywordURIFixup(
           message.data.searchString,
@@ -197,11 +200,6 @@ export class UrlbarParent extends JSWindowActorParent {
       case "ClearLastQueryContextCache":
         controller.clearLastQueryContextCache();
         break;
-      // onBeforeSelection/onSelection drop their second argument (the selected
-      // DOM element), which can't cross the boundary. Only
-      // UrlbarProviderQuickSuggestContextualOptIn reads it, and it isn't active
-      // on the message path. Bug 2052166 removes the parameter with that
-      // provider.
       case "OnBeforeSelection":
         controller.onBeforeSelection(
           this.#resultFromWire(controller, message.data.result)
@@ -226,7 +224,8 @@ export class UrlbarParent extends JSWindowActorParent {
           message.data.searchTerms,
           message.data.where,
           message.data.inBackground,
-          message.data.browserId
+          message.data.browserId,
+          message.data.tracksBounce
         );
         break;
       case "OpenSearchForm":

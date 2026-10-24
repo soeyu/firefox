@@ -47,6 +47,7 @@
 #include "FrameProperties.h"
 #include "LayoutConstants.h"
 #include "Visibility.h"
+#include "fmt/ostream.h"
 #include "mozilla/AspectRatio.h"
 #include "mozilla/Attributes.h"
 #include "mozilla/Baseline.h"
@@ -74,6 +75,7 @@
 #include "nsFrameState.h"
 #include "nsIContent.h"
 #include "nsITheme.h"
+#include "nsPresArena.h"
 #include "nsPresContext.h"
 #include "nsQueryFrame.h"
 #include "nsStyleStruct.h"
@@ -367,6 +369,9 @@ class nsReflowStatus final {
 // Convert nsReflowStatus to a human-readable string.
 std::ostream& operator<<(std::ostream& aStream, const nsReflowStatus& aStatus);
 
+template <>
+struct fmt::formatter<nsReflowStatus> : fmt::ostream_formatter {};
+
 namespace mozilla {
 
 // Loosely: https://drafts.csswg.org/css-align-3/#shared-alignment-context
@@ -581,18 +586,18 @@ static void ReleaseValue(T* aPropertyValue) {
 #define NS_DECL_FRAMEARENA_HELPERS(class)                                      \
   NS_DECL_QUERYFRAME_TARGET(class)                                             \
   static constexpr nsIFrame::ClassID kClassID = nsIFrame::ClassID::class##_id; \
-  void* operator new(size_t, mozilla::PresShell*) MOZ_MUST_OVERRIDE;           \
+  void* operator new(size_t) MOZ_MUST_OVERRIDE;                                \
   nsQueryFrame::FrameIID GetFrameId() const override MOZ_MUST_OVERRIDE {       \
     return nsQueryFrame::class##_id;                                           \
   }
 
-#define NS_IMPL_FRAMEARENA_HELPERS(class)                              \
-  void* class ::operator new(size_t sz, mozilla::PresShell * aShell) { \
-    return aShell->AllocateFrame(nsQueryFrame::class##_id, sz);        \
+#define NS_IMPL_FRAMEARENA_HELPERS(class)                               \
+  void* class ::operator new(size_t sz) {                               \
+    return mozilla::FrameArena::Allocate(nsQueryFrame::class##_id, sz); \
   }
 
-#define NS_DECL_ABSTRACT_FRAME(class)                                         \
-  void* operator new(size_t, mozilla::PresShell*) MOZ_MUST_OVERRIDE = delete; \
+#define NS_DECL_ABSTRACT_FRAME(class)                    \
+  void* operator new(size_t) MOZ_MUST_OVERRIDE = delete; \
   nsQueryFrame::FrameIID GetFrameId() const override MOZ_MUST_OVERRIDE = 0;
 
 //----------------------------------------------------------------------
@@ -798,7 +803,7 @@ class nsIFrame : public nsQueryFrame {
   virtual void Init(nsIContent* aContent, nsContainerFrame* aParent,
                     nsIFrame* aPrevInFlow);
 
-  void* operator new(size_t, mozilla::PresShell*) MOZ_MUST_OVERRIDE;
+  void* operator new(size_t) MOZ_MUST_OVERRIDE;
 
   using DestroyContext = mozilla::FrameDestroyContext;
 
@@ -862,9 +867,6 @@ class nsIFrame : public nsQueryFrame {
   void operator delete(void* aPtr, size_t sz);
 
  private:
-  // Left undefined; nsIFrame objects are never allocated from the heap.
-  void* operator new(size_t sz) noexcept(true);
-
   // Returns true if this frame has any kind of CSS animations.
   bool HasCSSAnimations();
 
@@ -1837,9 +1839,7 @@ class nsIFrame : public nsQueryFrame {
    * which return a baseline from GetBaseline which is not useful for
    * caret positioning.
    */
-  virtual nscoord GetCaretBaseline() const {
-    return GetLogicalBaseline(GetWritingMode());
-  }
+  virtual nscoord GetCaretBaseline() const;
 
   // Gets a caret baseline suitable for the frame if the frame doesn't have one.
   nscoord GetFontMetricsDerivedCaretBaseline() const;
@@ -2283,6 +2283,17 @@ class nsIFrame : public nsQueryFrame {
    * @see     WidgetGUIEvent
    * @see     nsEventStatus
    */
+  /**
+   * Select the word or the link at aContextMenuEvent's point, so that the
+   * context menu can act on it. Called from HandleEvent(), after the event
+   * has been dispatched to the page and before the system group listeners
+   * open the context menu, and only if the page did not cancel the event.
+   *
+   * @param aContextMenuEvent       Its message must be eContextMenu.
+   */
+  MOZ_CAN_RUN_SCRIPT_BOUNDARY void HandleContextMenuEventToSelectWordOrLink(
+      const mozilla::WidgetMouseEvent& aContextMenuEvent);
+
   MOZ_CAN_RUN_SCRIPT_BOUNDARY
   virtual nsresult HandleEvent(nsPresContext* aPresContext,
                                mozilla::WidgetGUIEvent* aEvent,
@@ -2352,6 +2363,38 @@ class nsIFrame : public nsQueryFrame {
       mozilla::WidgetMouseEvent& aSecondaryButtonEvent,
       const nsIContent& aContentAtEventPoint,
       int32_t aOffsetAtEventPoint) const;
+
+  /**
+   * Check whether aContextMenuEvent should select what it points at instead of
+   * leaving the selection alone.
+   *
+   * @param aFrameSelection         The nsFrameSelection which owns the
+   *                                selection to compare the event point with.
+   * @param aContextMenuEvent       Its message must be eContextMenu.
+   * @param aPoint                  The event point, relative to this frame.
+   * @param aContentAtEventPoint    The content node at the event point.
+   * @param aOffsetAtEventPoint     The offset in aContentAtEventPoint which
+   *                                aContextMenuEvent points at.
+   */
+  [[nodiscard]] bool SelectingWordOrLinkAtEventPointAllowed(
+      const nsFrameSelection& aFrameSelection,
+      const mozilla::WidgetMouseEvent& aContextMenuEvent, const nsPoint& aPoint,
+      const nsIContent& aContentAtEventPoint,
+      int32_t aOffsetAtEventPoint) const;
+
+  /**
+   * Select the whole text of the link containing aContentAtEventPoint, or the
+   * word at aPoint when it is not in a link.  A link is selected as a whole
+   * because the context menu acts on the link rather than on one of its words.
+   * Blink does the same in
+   * SelectionController::SelectClosestWordOrLinkFromMouseEvent() and WebKit in
+   * EventHandler::selectClosestContextualWordOrLinkFromHitTestResult().
+   *
+   * @param aPoint                  The event point, relative to this frame.
+   * @param aContentAtEventPoint    The content node at aPoint.
+   */
+  MOZ_CAN_RUN_SCRIPT nsresult SelectWordOrLinkAtPoint(
+      const nsPoint& aPoint, const nsIContent& aContentAtEventPoint);
 
   MOZ_CAN_RUN_SCRIPT_BOUNDARY NS_IMETHOD HandleMultiplePress(
       nsPresContext* aPresContext, mozilla::WidgetGUIEvent* aEvent,
@@ -2639,6 +2682,18 @@ class nsIFrame : public nsQueryFrame {
    * Return true if this frame is the primary frame for mContent.
    */
   bool IsPrimaryFrame() const { return mIsPrimaryFrame; }
+
+  /**
+   * Return true if this frame is in a fixed-pos subtree that is replicated
+   * across pages (see nsCSSFrameConstructor::ReplicateFixedFrames), either as
+   * the original or as one of the copies.
+   */
+  bool IsInReplicatedFixedPosTree() const;
+  /**
+   * Returns true whether this frame hosts any potentially replicated fixed-pos
+   * elements that would escape `this`s subtree.
+   */
+  bool ContainsReplicatedFixedPosPlaceholders() const;
 
   void SetIsPrimaryFrame(bool aIsPrimary) {
     if (mIsPrimaryFrame == aIsPrimary) {

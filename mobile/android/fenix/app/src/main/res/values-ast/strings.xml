@@ -124,11 +124,7 @@
     in the Recently visited section
   -->
   <string name="recently_visited_menu_item_remove">Quitar</string>
-  <!--
-    Browser Fragment
-
-    Content description (not visible, for screen readers etc.): Navigate backward (browsing history)
-  -->
+  <!-- Content description (not visible, for screen readers etc.): Navigate backward (browsing history) -->
   <string name="browser_menu_back">Atrás</string>
   <!-- Content description (not visible, for screen readers etc.): Navigate forward (browsing history) -->
   <string name="browser_menu_forward">Alantre</string>
@@ -239,7 +235,11 @@
     Title for the settings page
   -->
   <string name="settings">Configuración</string>
-  <!-- Preference category for general settings -->
+  <!--
+    Preferences
+
+    Preference category for general settings
+  -->
   <string name="preferences_category_general">Xeneral</string>
   <!-- Preference category for all links about Fenix -->
   <string name="preferences_category_about">Tocante a</string>
@@ -548,8 +548,6 @@
     Title of preference for tabs management
   -->
   <string name="preferences_tabs">Llingüetes</string>
-  <!-- Title of preference that allows a user to specify the tab view -->
-  <string name="preferences_tab_view">Llista de llingüetes</string>
   <!-- Option for a list tab view -->
   <string name="tab_view_list">En llista</string>
   <!-- Option for a grid tab view -->
@@ -586,13 +584,7 @@
   <string name="close_tabs_after_one_week_summary">Zarrales dempués d\'una selmana</string>
   <!-- Summary for tabs preference when auto closing tabs setting is set to auto close tabs after one month -->
   <string name="close_tabs_after_one_month_summary">Zarrales dempués d\'un mes</string>
-  <!--
-    Inactive tabs
-
-    Category header of a preference that allows a user to enable or disable the inactive tabs feature
-  -->
-  <string name="preferences_inactive_tabs">Mover les llingüetes antigües a la seición d\'inactividá</string>
-  <!-- Title of inactive tabs preference -->
+  <!-- Summary of the preference that allows a user to enable or disable the inactive tabs feature. -->
   <string name="preferences_inactive_tabs_title">Les llingüetes que nun visites en dos selmanes van a la seición d\'inactividá.</string>
   <!--
     Studies
@@ -659,16 +651,6 @@
     %1$d is the number of bookmarks selected
   -->
   <string name="history_multi_select_title">%1$d na seleición</string>
-  <!-- Text for the header that groups the history for today -->
-  <string name="history_today">Güei</string>
-  <!-- Text for the header that groups the history for yesterday -->
-  <string name="history_yesterday">Ayeri</string>
-  <!-- Text for the header that groups the history the past 7 days -->
-  <string name="history_7_days">Los últimos 7 díes</string>
-  <!-- Text for the header that groups the history the past 30 days -->
-  <string name="history_30_days">Los últimos 30 díes</string>
-  <!-- Text for the header that groups the history older than the last month -->
-  <string name="history_older">D\'hai más de 30 díes</string>
   <!-- Text shown when no history exists -->
   <string name="history_empty_message">Nun hai nada</string>
   <!--

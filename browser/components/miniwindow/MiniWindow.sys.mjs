@@ -2,6 +2,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+import { XPCOMUtils } from "resource://gre/modules/XPCOMUtils.sys.mjs";
+
 const lazy = {};
 
 ChromeUtils.defineESModuleGetters(lazy, {
@@ -11,6 +13,29 @@ ChromeUtils.defineESModuleGetters(lazy, {
     "moz-src:///browser/components/sessionstore/TabStateFlusher.sys.mjs",
   MiniWindowUtils:
     "moz-src:///browser/components/miniwindow/MiniWindowUtils.sys.mjs",
+});
+
+ChromeUtils.defineLazyGetter(lazy, "prefs", () => {
+  let prefs = {};
+  XPCOMUtils.defineLazyPreferenceGetter(
+    prefs,
+    "hideDelayMs",
+    "browser.mini-window.toolbar.hide-delay-ms",
+    1000
+  );
+  XPCOMUtils.defineLazyPreferenceGetter(
+    prefs,
+    "edgeZonePx",
+    "browser.mini-window.toolbar.edge-zone-px",
+    12
+  );
+  XPCOMUtils.defineLazyPreferenceGetter(
+    prefs,
+    "hoverRevealDelayMs",
+    "browser.mini-window.toolbar.hover-reveal-delay-ms",
+    50
+  );
+  return prefs;
 });
 
 ChromeUtils.defineLazyGetter(lazy, "logConsole", () =>
@@ -31,13 +56,9 @@ export const MiniWindowState = {
   CLOSED: "closed",
 };
 
-const WINDOW_EVENTS = ["unload"];
+const WINDOW_EVENTS = ["unload", "activate"];
 
 const TOOLBAR_HIDE_DELAY_FIRST_OPEN_MS = 2500;
-const TOOLBAR_HIDE_DELAY_MS = 2000;
-const TOOLBAR_HOVER_REVEAL_DELAY_MS = 100;
-// How deep the reveal strip along the top edge is.
-const TOOLBAR_EDGE_ZONE_PX = 8;
 
 /**
  * One always-on-top popup hosting a live moved tab. The tab keeps its
@@ -135,13 +156,6 @@ export class MiniWindow {
   #toolbarHeightObserver = null;
 
   /**
-   * Re-frames the crop when the window's size changes.
-   *
-   * @type {ResizeObserver|null}
-   */
-  #frameResizeObserver = null;
-
-  /**
    * Aborts all the toolbox listeners at once on teardown.
    *
    * @type {AbortController|null}
@@ -197,9 +211,6 @@ export class MiniWindow {
     this.#originTabIndex = originWin.gBrowser.tabs.indexOf(sourceTab);
     this.miniWin = null;
     this._state = MiniWindowState.OPENING;
-    this._crop = null;
-    this._pageWidth = 0;
-    this._pageHeight = 0;
   }
 
   /**
@@ -261,7 +272,7 @@ export class MiniWindow {
 
     let features = {
       alwaysontop: 1,
-      lockaspectratio: 1,
+      lockaspectratio: this.#cropped ? 1 : 0,
       replaceLastTab: true,
       outerWidth: rect.width,
       outerHeight: rect.height,
@@ -295,10 +306,12 @@ export class MiniWindow {
     if (this.#cropped) {
       // Only a crop needs the framing and the wheel panning that substitutes
       // for scrolling.
-      await this.#frame();
+      this.#frame();
     }
     this._state = MiniWindowState.FRAMED;
     lazy.logConsole.debug("open: state -> FRAMED");
+
+    this.#avoidOtherWindows();
 
     this.#abortController = new AbortController();
     this.#wireNavBarButtons();
@@ -315,6 +328,20 @@ export class MiniWindow {
     // Now that the tab is settled in the mini window, watch for it navigating away.
     this.#attachHistoryListener();
     return this.miniWin;
+  }
+
+  /**
+   * Nudge the freshly-opened window clear of the other always-on-top windows.
+   */
+  #avoidOtherWindows() {
+    if (!this.miniWin || this.miniWin.closed) {
+      return;
+    }
+    let avoid = this.manager.windowsToAvoid(this.miniWin);
+    let pos = lazy.MiniWindowUtils.repositionToAvoid(this.miniWin, avoid);
+    if (pos) {
+      this.miniWin.moveTo(pos.left, pos.top);
+    }
   }
 
   /**
@@ -343,7 +370,7 @@ export class MiniWindow {
         }
         // Defer so we don't tear down while session history is mid-update.
         Services.tm.dispatchToMainThread(() =>
-          this.returnToOriginWin(true, "navigated_away")
+          this.returnToOriginWin(this.#shouldFocusOnReturn(), "navigated_away")
         );
       },
       OnHistoryReload: () => true,
@@ -352,7 +379,7 @@ export class MiniWindow {
           return;
         }
         Services.tm.dispatchToMainThread(() =>
-          this.returnToOriginWin(true, "navigated_away")
+          this.returnToOriginWin(this.#shouldFocusOnReturn(), "navigated_away")
         );
       },
       OnHistoryPurge() {},
@@ -366,6 +393,16 @@ export class MiniWindow {
     };
     sessionHistory.addSHistoryListener(this.#historyListener);
     this.#historyListenerSH = sessionHistory;
+  }
+
+  /**
+   * Bring the returned tab to the front only if the user was using the mini
+   * window; a page navigating while they're elsewhere shouldn't steal focus.
+   *
+   * @returns {boolean}
+   */
+  #shouldFocusOnReturn() {
+    return Services.focus.activeWindow === this.miniWin;
   }
 
   #detachHistoryListener() {
@@ -396,6 +433,11 @@ export class MiniWindow {
       "key_closeWindow",
       "key_toggleMute",
     ]);
+    const ALLOWED_COMMANDS = new Set([
+      "cmd_fullZoomReduce",
+      "cmd_fullZoomEnlarge",
+      "cmd_fullZoomReset",
+    ]);
     // A crop frames one specific page, so history navigation only makes sense
     // in a full-tab mini window.
     if (!this.#cropped) {
@@ -405,7 +447,11 @@ export class MiniWindow {
     }
     let keyset = this.miniWin.document.getElementById("mainKeyset");
     for (let key of keyset ? [...keyset.children] : []) {
-      if (key.localName === "key" && !ALLOWED_KEYS.has(key.id)) {
+      if (
+        key.localName === "key" &&
+        !ALLOWED_KEYS.has(key.id) &&
+        !ALLOWED_COMMANDS.has(key.getAttribute("command"))
+      ) {
         key.setAttribute("disabled", "true");
       }
     }
@@ -501,7 +547,12 @@ export class MiniWindow {
         let { width } = win.windowUtils.getBoundsWithoutFlushing(
           win.document.documentElement
         );
-        return { top: 0, bottom: TOOLBAR_EDGE_ZONE_PX, left: 0, right: width };
+        return {
+          top: 0,
+          bottom: lazy.prefs.edgeZonePx,
+          left: 0,
+          right: width,
+        };
       },
       onMouseEnter: () => {
         // A scroll down dismissed the bar while the pointer was already at the
@@ -638,7 +689,7 @@ export class MiniWindow {
    *
    * @param {number} hideDelay - how long the toolbar stays up.
    */
-  revealToolbar(hideDelay = TOOLBAR_HIDE_DELAY_MS) {
+  revealToolbar(hideDelay = lazy.prefs.hideDelayMs) {
     this.#keepToolbarShown();
     this.#startHideCountdown(hideDelay);
   }
@@ -648,7 +699,7 @@ export class MiniWindow {
    *
    * @param {number} hideDelay - how long until the toolbar hides.
    */
-  #startHideCountdown(hideDelay = TOOLBAR_HIDE_DELAY_MS) {
+  #startHideCountdown(hideDelay = lazy.prefs.hideDelayMs) {
     this.#clearHideTimer();
     this.#hideToolbarTimer = this.miniWin.setTimeout(() => {
       if (this.#toolbarHeld()) {
@@ -696,7 +747,7 @@ export class MiniWindow {
       this.#hoverRevealTimer = this.miniWin.setTimeout(() => {
         this.#hoverRevealTimer = null;
         this.#keepToolbarShown();
-      }, TOOLBAR_HOVER_REVEAL_DELAY_MS);
+      }, lazy.prefs.hoverRevealDelayMs);
     }
   }
 
@@ -717,8 +768,6 @@ export class MiniWindow {
     this.#cancelHoverReveal();
     this.#toolbarHeightObserver?.disconnect();
     this.#toolbarHeightObserver = null;
-    this.#frameResizeObserver?.disconnect();
-    this.#frameResizeObserver = null;
     if (this.#progressListener) {
       this.miniWin?.gBrowser?.removeTabsProgressListener(
         this.#progressListener
@@ -739,60 +788,54 @@ export class MiniWindow {
       case "unload":
         this.#onUnload();
         break;
+      case "activate":
+        if (this._state === MiniWindowState.ACTIVE) {
+          this.miniWin.setTimeout(
+            () => this.revealToolbar(),
+            lazy.prefs.hoverRevealDelayMs
+          );
+        }
+        break;
     }
   }
 
   /**
-   * Lay the browser out at the full page size with scroll normalized to 0,0,
-   * then frame the crop with a chrome-side CSS transform.
-   * Page size comes from the content actor, clamped up to the crop's own viewport
-   * so a crop can never exceed it.
+   * Frame the crop with the native APZ zoom. The content keeps laying out at the
+   * viewport size the crop was captured against, so the page never reflows,
+   * while its visual viewport follows the popup. The content then keeps the
+   * visual viewport zoomed onto the crop as the popup resizes.
    *
-   * @returns {Promise<void>} Resolves once the browser has been sized and the
-   *   transform applied. Waits on the content actor for the page size, and
-   *   falls back to the crop's viewport if the actor is gone or the query
-   *   fails, so this resolves rather than rejecting on a dead actor.
    */
-  async #frame() {
-    let { browser, _cropInfo: cropInfo } = this;
-    this._crop = {
-      left: cropInfo.left,
-      top: cropInfo.top,
-      width: cropInfo.width,
-      height: cropInfo.height,
-    };
-
+  #frame() {
     let actor = this.#getActor();
     if (!actor) {
       lazy.logConsole.warn(
-        "No MiniWindow actor available; falling back to cropInfo viewport size"
+        "No MiniWindow actor available; can't zoom the crop"
       );
+      return;
     }
-    let size = await actor?.sendQuery("GetSize").catch(() => null);
-    let zoom = cropInfo.fullZoom || 1;
-    let box = lazy.MiniWindowUtils.computeFrameBox(cropInfo, size, zoom);
-    this._pageWidth = box.pageWidth;
-    this._pageHeight = box.pageHeight;
-    lazy.logConsole.debug("#frame", {
-      pageWidth: this._pageWidth,
-      pageHeight: this._pageHeight,
-      crop: this._crop,
-    });
 
-    let container = browser.closest(".browserStack") || browser.parentNode;
-    if (container) {
-      container.style.overflow = "hidden";
-    }
-    browser.style.minWidth = "0";
-    browser.style.minHeight = "0";
-    browser.style.width = box.boxWidth + "px";
-    browser.style.height = box.boxHeight + "px";
-    browser.style.transformOrigin = "0 0";
+    this.#setWindowMinSize();
+    actor.sendAsyncMessage("ApzFrame", this.#apzFrameData());
+    lazy.logConsole.debug("#frame", { crop: this._cropInfo });
+  }
 
-    actor?.sendAsyncMessage("ScrollTo", { x: 0, y: 0 });
-
-    this.#applyTransform();
-    this.#trackWindowResize();
+  /**
+   * @returns {object} The ApzFrame message data, in content CSS px: the crop,
+   *   and the layout viewport size to hold the page at.
+   */
+  #apzFrameData() {
+    let cropInfo = this._cropInfo;
+    return {
+      crop: {
+        left: cropInfo.left,
+        top: cropInfo.top,
+        width: cropInfo.width,
+        height: cropInfo.height,
+      },
+      layoutWidth: cropInfo.innerWidth || cropInfo.viewportWidth,
+      layoutHeight: cropInfo.innerHeight || cropInfo.viewportHeight,
+    };
   }
 
   /**
@@ -806,44 +849,24 @@ export class MiniWindow {
   }
 
   /**
-   * Re-frame the crop against the popup's current width. A no-op until #frame
-   * has computed the crop.
-   *
-   * @param {number} [innerWidth] The window's inner width, when the caller
-   *   already has it. Otherwise it is read without flushing layout.
+   * Hold the popup at a crop-aspect minimum size via a CSS min-width/min-height
+   * on its root element, so it can't be resized off the crop's aspect.
    */
-  #applyTransform(innerWidth) {
-    if (!this._crop) {
+  #setWindowMinSize() {
+    let { width, height } = this._cropInfo;
+    if (!(width > 0) || !(height > 0)) {
       return;
     }
-    innerWidth ??= this.miniWin.windowUtils.getBoundsWithoutFlushing(
-      this.miniWin.document.documentElement
-    ).width;
-    let { scale, tx, ty } = lazy.MiniWindowUtils.computeTransform(
-      innerWidth,
-      this._crop,
-      this._cropInfo.fullZoom || 1
-    );
-    this.browser.style.transform = `scale(${scale}) translate(${tx}px, ${ty}px)`;
-  }
 
-  /**
-   * Re-frame the crop whenever the window changes size.
-   *
-   */
-  #trackWindowResize() {
+    const FLOOR_WIDTH = 100;
+    const FLOOR_HEIGHT = 100;
+    let aspect = width / height;
+    let minWidth = Math.max(FLOOR_WIDTH, Math.round(FLOOR_HEIGHT * aspect));
+    let minHeight = Math.round(minWidth / aspect);
     let root = this.miniWin.document.documentElement;
-    this.#frameResizeObserver = new this.miniWin.ResizeObserver(entries => {
-      let width = entries.at(-1)?.contentBoxSize?.[0]?.inlineSize;
-      if (width) {
-        this.#applyTransform(width);
-      }
-    });
-    this.#frameResizeObserver.observe(root);
+    root.style.minWidth = `${minWidth}px`;
+    root.style.minHeight = `${minHeight}px`;
   }
-
-  // TODO: Scrolling horizontally won't work as is right now, a later commit in the stack
-  // handles this by introducing panning.
 
   /**
    * When unloading, we want to preserve the tab in the originWin's history. Instead of
@@ -944,6 +967,9 @@ export class MiniWindow {
    *   and the window it landed in, or nulls if it could not be adopted.
    */
   #returnTabToOrigin(selectTab) {
+    // Undo the framing (viewport override and zoom) before the tab goes home, or
+    // it stays framed there.
+    this.#getActor()?.sendAsyncMessage("ResetApzFrame");
     let tab = this.tab;
     let { originWin } = this;
     let target = originWin && !originWin.closed ? originWin : null;
@@ -974,7 +1000,6 @@ export class MiniWindow {
       return;
     }
 
-    // A throw during teardown must not strand this popup registered;
     try {
       let flavour = this.#cropped ? "fragment" : "full_tab";
       let openDuration = Math.round(ChromeUtils.now() - this.#createdAt);
@@ -986,7 +1011,12 @@ export class MiniWindow {
       Glean.miniWindow.openDuration[flavour].accumulateSingleSample(
         openDuration
       );
+    } catch (e) {
+      lazy.logConsole.error("uninit: recording telemetry failed", e);
+    }
 
+    // A throw during teardown must not strand this popup registered;
+    try {
       this.#detachHistoryListener();
       this.#abortController?.abort();
       this.#unwireToolbarReveal();
@@ -994,12 +1024,16 @@ export class MiniWindow {
       for (let ev of WINDOW_EVENTS) {
         this.miniWin?.removeEventListener(ev, this);
       }
-      if (this.miniWin && !this.miniWin.closed) {
-        this.miniWin.close();
-      }
     } catch (e) {
       lazy.logConsole.error("uninit: teardown failed", e);
     } finally {
+      try {
+        if (this.miniWin && !this.miniWin.closed) {
+          this.miniWin.close();
+        }
+      } catch (e) {
+        lazy.logConsole.error("uninit: closing the popup failed", e);
+      }
       this._state = MiniWindowState.CLOSED;
       this.manager._unregister(this);
       this.miniWin = null;

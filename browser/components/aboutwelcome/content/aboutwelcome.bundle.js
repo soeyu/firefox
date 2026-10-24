@@ -167,6 +167,7 @@ const MultiStageUtils = {
 "use strict";
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   CARD_STACK_TRANSITION_OUT_TIME: () => (/* binding */ CARD_STACK_TRANSITION_OUT_TIME),
 /* harmony export */   MultiStageAboutWelcome: () => (/* binding */ MultiStageAboutWelcome),
 /* harmony export */   ProgressBar: () => (/* binding */ ProgressBar),
 /* harmony export */   SecondaryCTA: () => (/* binding */ SecondaryCTA),
@@ -178,9 +179,10 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony import */ var _MSLocalized__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(5);
 /* harmony import */ var _lib_multistage_utils_mjs__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(3);
 /* harmony import */ var _MultiStageProtonScreen__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(6);
-/* harmony import */ var _LanguageSwitcher__WEBPACK_IMPORTED_MODULE_4__ = __webpack_require__(8);
-/* harmony import */ var _SubmenuButton__WEBPACK_IMPORTED_MODULE_5__ = __webpack_require__(13);
-/* harmony import */ var _lib_addUtmParams_mjs__WEBPACK_IMPORTED_MODULE_6__ = __webpack_require__(35);
+/* harmony import */ var _ContentTiles__WEBPACK_IMPORTED_MODULE_4__ = __webpack_require__(15);
+/* harmony import */ var _LanguageSwitcher__WEBPACK_IMPORTED_MODULE_5__ = __webpack_require__(8);
+/* harmony import */ var _SubmenuButton__WEBPACK_IMPORTED_MODULE_6__ = __webpack_require__(13);
+/* harmony import */ var _lib_addUtmParams_mjs__WEBPACK_IMPORTED_MODULE_7__ = __webpack_require__(35);
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -193,8 +195,11 @@ __webpack_require__.r(__webpack_exports__);
 
 
 
+
 // Amount of milliseconds for all transitions to complete (including delays).
 const TRANSITION_OUT_TIME = 1000;
+// Keep in sync with --card-stack-duration in _multistage.scss.
+const CARD_STACK_TRANSITION_OUT_TIME = 400;
 const LANGUAGE_MISMATCH_SCREEN_ID = "AW_LANGUAGE_MISMATCH";
 const MultiStageAboutWelcome = props => {
   const gateInitialPaint = props.gateInitialPaint ?? false;
@@ -258,7 +263,8 @@ const MultiStageAboutWelcome = props => {
             screen_family: props.message_id,
             screen_index: order,
             screen_id: screen.id,
-            screen_initials: screenInitials
+            screen_initials: screenInitials,
+            ...(0,_ContentTiles__WEBPACK_IMPORTED_MODULE_4__.getTileImpressionContext)(screen.content?.tiles)
           });
 
           // Impression actions should be fired before recording the
@@ -301,11 +307,20 @@ const MultiStageAboutWelcome = props => {
       requestAnimationFrame(() => requestAnimationFrame(() => setTransition("")));
     }
   }, [transition]);
+  const isCardStack = defaultScreens?.[0]?.content?.position === "card-stack";
+  const transitionOutTime = isCardStack ? CARD_STACK_TRANSITION_OUT_TIME : TRANSITION_OUT_TIME;
 
   // Transition to next screen, opening about:home on last screen button CTA
   const handleTransition = goBack => {
     // Only handle transitioning out from a screen once.
     if (transition === "out") {
+      return;
+    }
+
+    // The card stack plays a single exit animation on teardown, so finishing
+    // from its last screen would otherwise wait for that twice.
+    if (isCardStack && !goBack && index >= screens.length - 1) {
+      window.AWFinish();
       return;
     }
 
@@ -323,7 +338,7 @@ const MultiStageAboutWelcome = props => {
       } else {
         window.AWFinish();
       }
-    }, props.transitions ? TRANSITION_OUT_TIME : 0);
+    }, props.transitions ? transitionOutTime : 0);
   };
   (0,react__WEBPACK_IMPORTED_MODULE_0__.useEffect)(() => {
     // When about:welcome loads (on refresh or pressing back button
@@ -344,7 +359,7 @@ const MultiStageAboutWelcome = props => {
         setTimeout(() => {
           setTransition(props.transitions ? "in" : "");
           setScreenIndex(Math.min(state, screens.length - 1));
-        }, props.transitions ? TRANSITION_OUT_TIME : 0);
+        }, props.transitions ? transitionOutTime : 0);
       };
 
       // Handle page load, e.g., going back to about:welcome from about:home
@@ -360,7 +375,9 @@ const MultiStageAboutWelcome = props => {
       window.addEventListener("popstate", handler);
       return () => window.removeEventListener("popstate", handler);
     }
-    return false;
+    // React calls a non-undefined return value on unmount, so `false` here
+    // throws when the message is torn down.
+    return undefined;
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [multiSelects, setMultiSelects] = (0,react__WEBPACK_IMPORTED_MODULE_0__.useState)({});
@@ -426,7 +443,7 @@ const MultiStageAboutWelcome = props => {
     negotiatedLanguage,
     langPackInstallPhase,
     languageFilteredScreens
-  } = (0,_LanguageSwitcher__WEBPACK_IMPORTED_MODULE_4__.useLanguageSwitcher)(props.appAndSystemLocaleInfo, screens, index, setScreenIndex);
+  } = (0,_LanguageSwitcher__WEBPACK_IMPORTED_MODULE_5__.useLanguageSwitcher)(props.appAndSystemLocaleInfo, screens, index, setScreenIndex);
   (0,react__WEBPACK_IMPORTED_MODULE_0__.useEffect)(() => {
     setScreens(languageFilteredScreens);
   }, [languageFilteredScreens]);
@@ -519,6 +536,7 @@ const MultiStageAboutWelcome = props => {
       content: currentScreen.content,
       navigate: handleTransition,
       autoAdvance: currentScreen.auto_advance,
+      autoDismiss: currentScreen.auto_dismiss,
       advanceOnExperimentLoad: currentScreen.advance_on_experiment_load,
       messageId: `${props.message_id}_${order}_${currentScreen.id}`,
       UTMTerm: props.utm_term,
@@ -634,7 +652,7 @@ const renderSingleSecondaryCTAButton = ({
     value: targetElement,
     disabled: computeDisabled(button?.disabled),
     onClick: shimmedHandleAction
-  })), isSplitButton ? /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement(_SubmenuButton__WEBPACK_IMPORTED_MODULE_5__.SubmenuButton, {
+  })), isSplitButton ? /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement(_SubmenuButton__WEBPACK_IMPORTED_MODULE_6__.SubmenuButton, {
     content: content,
     handleAction: handleAction
   }) : null);
@@ -744,7 +762,7 @@ class WelcomeScreen extends (react__WEBPACK_IMPORTED_MODULE_0___default().PureCo
     } = action;
     if (type === "SHOW_FIREFOX_ACCOUNTS") {
       let params = {
-        ..._lib_addUtmParams_mjs__WEBPACK_IMPORTED_MODULE_6__.BASE_PARAMS,
+        ..._lib_addUtmParams_mjs__WEBPACK_IMPORTED_MODULE_7__.BASE_PARAMS,
         utm_term: `${UTMTerm}-screen`
       };
       if (action.addFlowParams && flowParams) {
@@ -762,7 +780,7 @@ class WelcomeScreen extends (react__WEBPACK_IMPORTED_MODULE_0___default().PureCo
       };
     } else if (type === "OPEN_URL") {
       let url = new URL(data.args);
-      (0,_lib_addUtmParams_mjs__WEBPACK_IMPORTED_MODULE_6__.addUtmParams)(url, `${UTMTerm}-screen`);
+      (0,_lib_addUtmParams_mjs__WEBPACK_IMPORTED_MODULE_7__.addUtmParams)(url, `${UTMTerm}-screen`);
       if (action.addFlowParams && flowParams) {
         url.searchParams.append("device_id", flowParams.deviceId);
         url.searchParams.append("flow_id", flowParams.flowId);
@@ -1073,6 +1091,7 @@ class WelcomeScreen extends (react__WEBPACK_IMPORTED_MODULE_0___default().PureCo
       isSingleScreen: this.props.isSingleScreen,
       startsWithCorner: this.props.startsWithCorner,
       autoAdvance: this.props.autoAdvance,
+      autoDismiss: this.props.autoDismiss,
       advanceOnExperimentLoad: this.props.advanceOnExperimentLoad,
       navigate: this.props.navigate,
       forceHideStepsIndicator: this.props.forceHideStepsIndicator,
@@ -1304,6 +1323,7 @@ __webpack_require__.r(__webpack_exports__);
 
 
 const DEFAULT_AUTO_ADVANCE_MS = 20000;
+const MAX_TIMEOUT_MS = 2 ** 31 - 1;
 const CORNER_IMAGE_POSITIONS = new Set(["bottom-left", "bottom-right", "top-left", "top-right"]);
 const DEFAULT_CORNER_IMAGE_POSITION = "bottom-right";
 const CORNER_IMAGE_ENTRANCE_ANIMATIONS = new Set(["none", "fade", "slide-block", "slide-inline", "slide-corner", "zoom"]);
@@ -1336,6 +1356,38 @@ function resolveDirectionalImage(image) {
     ...image.rtl
   } : image;
 }
+
+/**
+ * Dismisses the message once the screen has been shown for `autoDismiss.after`
+ * milliseconds. The countdown only runs while the page is visible and restarts
+ * when it becomes visible again, so the screen can't time out while invisible
+ * in the background.
+ */
+function useAutoDismiss(autoDismiss, messageId) {
+  const after = autoDismiss?.after;
+  (0,react__WEBPACK_IMPORTED_MODULE_0__.useEffect)(() => {
+    if (!Number.isFinite(after) || after < 0 || after > MAX_TIMEOUT_MS) {
+      return undefined;
+    }
+    let timer = null;
+    let dismissed = false;
+    const dismiss = () => {
+      dismissed = true;
+      _lib_multistage_utils_mjs__WEBPACK_IMPORTED_MODULE_2__.MultiStageUtils.sendActionTelemetry(messageId, "auto_dismiss", "AUTO_DISMISS");
+      window.AWFinish();
+    };
+    const restartCountdown = () => {
+      clearTimeout(timer);
+      timer = !dismissed && document.visibilityState === "visible" ? setTimeout(dismiss, after) : null;
+    };
+    restartCountdown();
+    document.addEventListener("visibilitychange", restartCountdown);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("visibilitychange", restartCountdown);
+    };
+  }, [after, messageId]);
+}
 const MultiStageProtonScreen = props => {
   const {
     autoAdvance,
@@ -1345,6 +1397,7 @@ const MultiStageProtonScreen = props => {
     navigate,
     order
   } = props;
+  useAutoDismiss(props.autoDismiss, messageId);
   (0,react__WEBPACK_IMPORTED_MODULE_0__.useEffect)(() => {
     if (!autoAdvance && !advanceOnExperimentLoad) {
       return () => {};
@@ -1788,6 +1841,44 @@ class ProtonScreen extends (react__WEBPACK_IMPORTED_MODULE_0___default().PureCom
       className: "noodle yellow-circle"
     }));
   }
+  renderLastCardImage(content) {
+    const {
+      width,
+      height,
+      marginBlock,
+      marginInline,
+      ...image
+    } = content.center_image ?? {};
+    return /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("div", {
+      className: "last-card-image",
+      style: {
+        "--last-card-image-width": width,
+        "--last-card-image-height": height,
+        "--last-card-picture-margin-block": marginBlock,
+        "--last-card-picture-margin-inline": marginInline
+      }
+    }, content.center_image ? this.renderPicture({
+      ...image,
+      className: "center-image"
+    }) : null);
+  }
+
+  // Draws the front card plus one back card for each screen still to come, up
+  // to two.
+  renderCardStackLayers() {
+    const {
+      order = 0,
+      totalNumberOfScreens = 1
+    } = this.props;
+    const cardsBehind = totalNumberOfScreens - order - 1;
+    return /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement((react__WEBPACK_IMPORTED_MODULE_0___default().Fragment), null, /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("div", {
+      className: "card-stack-front"
+    }), cardsBehind >= 1 ? /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("div", {
+      className: "card-stack-layer-1"
+    }) : null, cardsBehind >= 2 ? /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("div", {
+      className: "card-stack-layer-2"
+    }) : null);
+  }
   renderCornerImage(anchor) {
     const cornerImage = this.props.content.corner_image;
     const position = resolveCornerImagePosition(cornerImage.position);
@@ -2122,7 +2213,10 @@ class ProtonScreen extends (react__WEBPACK_IMPORTED_MODULE_0___default().PureCom
         this.mainContentHeader = input;
       },
       "no-rdm": content.no_rdm ? "" : null
-    }, cornerImageAnchor === "screen" ? this.renderCornerImage("screen") : null, isCenterPosition ? null : this.renderSecondarySection(content), /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("div", {
+      // eslint-disable-next-line react/no-unknown-property
+      ,
+      "initial-card": content.position === "card-stack" && this.props.isFirstScreen && this.props.previousOrder < 0 ? "" : null
+    }, content.position === "card-stack" ? this.renderCardStackLayers() : null, cornerImageAnchor === "screen" ? this.renderCornerImage("screen") : null, isCenterPosition ? null : this.renderSecondarySection(content), /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("div", {
       className: `section-main ${isEmbeddedMigration ? "embedded-migration" : ""}${isSystemPromptStyleSpotlight ? "system-prompt-spotlight" : ""}`,
       "hide-secondary-section": content.hide_secondary_section ? String(content.hide_secondary_section) : null,
       role: "document",
@@ -2143,7 +2237,7 @@ class ProtonScreen extends (react__WEBPACK_IMPORTED_MODULE_0___default().PureCom
     }, content.logo && content.fullscreen ? this.renderPicture(content.logo) : null, isRtamo && content.fullscreen ? this.renderRTAMOIcon(addonType, this.props.themeScreenshots, this.props.addonIconURL) : null, content.title || content.subtitle ? /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("div", {
       id: "multi-stage-message-welcome-text",
       className: `welcome-text ${content.title_style || ""}`
-    }, content.title ? this.renderTitle(content) : null, content.subtitle ? /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement(_MSLocalized__WEBPACK_IMPORTED_MODULE_1__.Localized, {
+    }, content.title ? this.renderTitle(content) : null, content.layout === "last-card" ? this.renderLastCardImage(content) : null, content.subtitle ? /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement(_MSLocalized__WEBPACK_IMPORTED_MODULE_1__.Localized, {
       text: content.subtitle
     }, /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("h2", {
       "data-l10n-args": JSON.stringify({
@@ -2337,8 +2431,9 @@ const screenContentShape = {
   width: (prop_types_prop_types__WEBPACK_IMPORTED_MODULE_13___default().string),
   // The callout card padding as a CSS value.
   padding: prop_types_prop_types__WEBPACK_IMPORTED_MODULE_13___default().oneOfType([(prop_types_prop_types__WEBPACK_IMPORTED_MODULE_13___default().string), (prop_types_prop_types__WEBPACK_IMPORTED_MODULE_13___default().number)]),
-  // Used when a single row with a more inline layout is desired. Works well in
-  // tandem with title_logo.
+  // A layout variant for the screen. 'inline' is a single row layout that
+  // works well in tandem with title_logo. 'last-card' is the final card-stack
+  // screen, with the title and subtitle split around a centered image slot.
   layout: (prop_types_prop_types__WEBPACK_IMPORTED_MODULE_13___default().string),
   // If true, adds a colorful gradient border to the screen. This is only
   // supported for screens with 'hide_arrow' set to true. There is no effect
@@ -2437,6 +2532,40 @@ const screenContentShape = {
       delay: (prop_types_prop_types__WEBPACK_IMPORTED_MODULE_13___default().string)
     })
   }),
+  // An optional image shown in the center image slot of the 'last-card'
+  // layout, revealed once the text split animation completes.
+  center_image: prop_types_prop_types__WEBPACK_IMPORTED_MODULE_13___default().shape({
+    // The image URL.
+    imageURL: (prop_types_prop_types__WEBPACK_IMPORTED_MODULE_13___default().string),
+    // The dark mode image URL.
+    darkModeImageURL: (prop_types_prop_types__WEBPACK_IMPORTED_MODULE_13___default().string),
+    // The reduced motion image URL.
+    reducedMotionImageURL: (prop_types_prop_types__WEBPACK_IMPORTED_MODULE_13___default().string),
+    // The dark mode reduced motion image URL.
+    darkModeReducedMotionImageURL: (prop_types_prop_types__WEBPACK_IMPORTED_MODULE_13___default().string),
+    // Right-to-left replacements for any of the URLs above, applied over them
+    // when the document is RTL. Any keys ommitted keep their base values.
+    rtl: prop_types_prop_types__WEBPACK_IMPORTED_MODULE_13___default().shape({
+      imageURL: (prop_types_prop_types__WEBPACK_IMPORTED_MODULE_13___default().string),
+      darkModeImageURL: (prop_types_prop_types__WEBPACK_IMPORTED_MODULE_13___default().string),
+      reducedMotionImageURL: (prop_types_prop_types__WEBPACK_IMPORTED_MODULE_13___default().string),
+      darkModeReducedMotionImageURL: (prop_types_prop_types__WEBPACK_IMPORTED_MODULE_13___default().string)
+    }),
+    // The <img> alt text.
+    alt: prop_types_prop_types__WEBPACK_IMPORTED_MODULE_13___default().oneOfType([(prop_types_prop_types__WEBPACK_IMPORTED_MODULE_13___default().string), (prop_types_prop_types__WEBPACK_IMPORTED_MODULE_13___default().object)]),
+    // The CSS width of the image slot. The split animation and margins adapt
+    // to it. Defaults to 120px.
+    width: (prop_types_prop_types__WEBPACK_IMPORTED_MODULE_13___default().string),
+    // The CSS height of the image slot. Defaults to 120px.
+    height: (prop_types_prop_types__WEBPACK_IMPORTED_MODULE_13___default().string),
+    // The CSS style overriding the marginBlock property. Useful for aligning
+    // the image's focal point with the text. Only applies when the text is
+    // split around the image, not when stacked at narrow breakpoints.
+    marginBlock: (prop_types_prop_types__WEBPACK_IMPORTED_MODULE_13___default().string),
+    // The CSS style overriding the marginInline property. Only applies when
+    // the text is split around the image, not when stacked at narrow breakpoints.
+    marginInline: (prop_types_prop_types__WEBPACK_IMPORTED_MODULE_13___default().string)
+  }),
   // The text for the headline.
   title: localizableThingPropTypes,
   // An optional object representing an icon to show next to the title.
@@ -2493,7 +2622,11 @@ const screenContentShape = {
     // CSS overrides of the tile container. Any CSS properties starting with
     // '--' are also allowed.
     style: (prop_types_prop_types__WEBPACK_IMPORTED_MODULE_13___default().object),
-    // Accessible name for the optional carousel pill navigation.
+    // Optional, currently for single-select tiles only. Visual layout for
+    // the tile's items.
+    layout: prop_types_prop_types__WEBPACK_IMPORTED_MODULE_13___default().oneOf(["carousel"]),
+    // Optional, currently for single-select tiles only. Accessible name for
+    // the carousel pill navigation.
     pill_nav_label: localizableThingPropTypes,
     // Array of tile configurations needed for the tile type.
     data: prop_types_prop_types__WEBPACK_IMPORTED_MODULE_13___default().oneOfType([(prop_types_prop_types__WEBPACK_IMPORTED_MODULE_13___default().array), (prop_types_prop_types__WEBPACK_IMPORTED_MODULE_13___default().object)])
@@ -4803,7 +4936,8 @@ const LinkParagraph = props => {
 "use strict";
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   ContentTiles: () => (/* binding */ ContentTiles)
+/* harmony export */   ContentTiles: () => (/* binding */ ContentTiles),
+/* harmony export */   getTileImpressionContext: () => (/* binding */ getTileImpressionContext)
 /* harmony export */ });
 /* harmony import */ var react__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(1);
 /* harmony import */ var react__WEBPACK_IMPORTED_MODULE_0___default = /*#__PURE__*/__webpack_require__.n(react__WEBPACK_IMPORTED_MODULE_0__);
@@ -4852,6 +4986,21 @@ function _extends() { return _extends = Object.assign ? Object.assign.bind() : f
 const HEADER_STYLES = ["backgroundColor", "border", "padding", "margin", "width", "height"];
 const TILE_STYLES = ["border", "borderRadius", "marginBlock", "marginInline", "paddingBlock", "paddingInline"];
 const CONTAINER_STYLES = ["padding", "margin", "marginBlock", "marginInline", "paddingBlock", "paddingInline", "flexDirection", "flexWrap", "flexFlow", "flexGrow", "flexShrink", "justifyContent", "alignItems", "gap"];
+
+/**
+ * @param {object|object[]} tiles - The tiles of the screen being shown.
+ * @returns {object} Impression context, if any.
+ */
+function getTileImpressionContext(tiles) {
+  const pinnableSites = (Array.isArray(tiles) ? tiles : [tiles]).find(tile => tile?.type === "pinnable_sites" && Array.isArray(tile.data));
+  if (!pinnableSites) {
+    return {};
+  }
+  return {
+    total_sites: pinnableSites.data.length,
+    personalized_sites: pinnableSites.data.filter(item => item?.personalized).length
+  };
+}
 const ContentTiles = props => {
   const {
     content
@@ -5067,7 +5216,8 @@ const ContentTiles = props => {
       handleAction: props.handleAction,
       activeSingleSelectSelections: props.activeSingleSelectSelections,
       setActiveSingleSelectSelection: props.setActiveSingleSelectSelection,
-      singleSelectId: `single-select-${index}`
+      singleSelectId: `single-select-${index}`,
+      messageId: props.messageId
     }), tile.type === "mobile_downloads" && tile.data && /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement(_MobileDownloads__WEBPACK_IMPORTED_MODULE_4__.MobileDownloads, {
       data: tile.data,
       handleAction: props.handleAction
@@ -5426,21 +5576,21 @@ const SingleSelect = ({
   activeTheme,
   content,
   handleAction,
+  messageId,
   setActiveSingleSelectSelection,
   singleSelectId
 }) => {
   const category = content.tiles?.category?.type || content.tiles?.type;
   const isSingleSelect = category === "single-select";
-  const cardRefs = (0,react__WEBPACK_IMPORTED_MODULE_0__.useRef)(new Map());
+  const isCarousel = isSingleSelect && content.tiles?.layout === "carousel";
+  const {
+    scrollerRef,
+    registerCard,
+    isSmallLayout
+  } = (0,_CarouselNav__WEBPACK_IMPORTED_MODULE_5__.useCarouselScroll)(activeSingleSelectSelections[singleSelectId], isCarousel);
   const handlePillSelect = id => {
     setActiveSingleSelectSelection(id, singleSelectId);
-    const card = cardRefs.current.get(id);
-    const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
-    card?.scrollIntoView?.({
-      behavior: reduceMotion ? "auto" : "smooth",
-      inline: "center",
-      block: "nearest"
-    });
+    _lib_multistage_utils_mjs__WEBPACK_IMPORTED_MODULE_4__.MultiStageUtils.sendActionTelemetry(messageId, `carousel-pill-${id}`, "CLICK_BUTTON");
   };
   const autoTriggerAllowed = itemAction => {
     // Currently only enabled for sidebar experiment prefs
@@ -5483,14 +5633,18 @@ const SingleSelect = ({
 
   const CONFIGURABLE_STYLES = ["background", "border", "borderRadius", "height", "marginBlock", "marginBlockStart", "marginBlockEnd", "marginInline", "paddingBlock", "paddingBlockStart", "paddingBlockEnd", "paddingInline", "paddingInlineStart", "paddingInlineEnd", "width"];
   return /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("div", {
-    className: `tiles-single-select-container`
-  }, isSingleSelect ? /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement(_CarouselNav__WEBPACK_IMPORTED_MODULE_5__.CarouselNav, {
+    className: `tiles-single-select-container ${isCarousel ? "carousel" : ""}`
+  }, isCarousel ? /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement(_CarouselNav__WEBPACK_IMPORTED_MODULE_5__.CarouselNav, {
     items: content.tiles?.data,
     activeId: activeSingleSelectSelections[singleSelectId],
     onSelect: handlePillSelect,
-    navLabel: content.tiles?.pill_nav_label
-  }) : null, /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("div", null, /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("fieldset", {
-    className: `tiles-single-select-section ${category}`
+    navLabel: content.tiles?.pill_nav_label,
+    compact: isSmallLayout
+  }) : null, /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("div", {
+    className: "tiles-single-select-wrapper"
+  }, /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("fieldset", {
+    className: `tiles-single-select-section ${category} ${isCarousel ? "carousel" : ""}`,
+    ref: scrollerRef
   }, /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement(_MSLocalized__WEBPACK_IMPORTED_MODULE_1__.Localized, {
     text: content.tiles?.subtitle || content.subtitle
   }, /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("legend", {
@@ -5523,6 +5677,9 @@ const SingleSelect = ({
       iconStyle["--single-select-icon-background-dark"] = icon.darkModeBackground;
       delete iconStyle.background;
     }
+    if (isCarousel && iconStyle) {
+      iconStyle.backgroundSize = "100% 100%";
+    }
     const handleClick = evt => {
       if (isSingleSelect) {
         setActiveSingleSelectSelection(value, singleSelectId); // Update selection for the specific component
@@ -5541,13 +5698,7 @@ const SingleSelect = ({
       text: valOrObj(tooltip)
     }, /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("label", {
       className: `select-item ${type} ${selected ? " selected" : ""}`,
-      ref: el => {
-        if (el) {
-          cardRefs.current.set(value, el);
-        } else {
-          cardRefs.current.delete(value);
-        }
-      },
+      ref: el => registerCard(value, el),
       onKeyDown: e => handleKeyDown(e),
       style: {
         ..._lib_multistage_utils_mjs__WEBPACK_IMPORTED_MODULE_4__.MultiStageUtils.getValidStyle(style, CONFIGURABLE_STYLES),
@@ -5589,7 +5740,8 @@ const SingleSelect = ({
     })) : "", tilebutton ? /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement(_TileButton__WEBPACK_IMPORTED_MODULE_2__.TileButton, {
       content: tilebutton,
       handleAction: handleAction,
-      inputName: inputName
+      inputName: inputName,
+      inert: isCarousel && !selected
     }) : ""));
   }))));
 };
@@ -5616,7 +5768,8 @@ const TileButton = props => {
   const {
     content,
     handleAction,
-    inputName
+    inputName,
+    inert
   } = props;
   const ref = (0,react__WEBPACK_IMPORTED_MODULE_0__.useRef)(null);
   if (!content) {
@@ -5637,6 +5790,7 @@ const TileButton = props => {
     onClick: onClick,
     value: "tile_button",
     ref: ref,
+    inert: inert ? "" : undefined,
     className: `${content.style} tile-button slim`
   }));
 };
@@ -5700,7 +5854,8 @@ const TileList = props => {
 "use strict";
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   CarouselNav: () => (/* binding */ CarouselNav)
+/* harmony export */   CarouselNav: () => (/* binding */ CarouselNav),
+/* harmony export */   useCarouselScroll: () => (/* binding */ useCarouselScroll)
 /* harmony export */ });
 /* harmony import */ var react__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(1);
 /* harmony import */ var react__WEBPACK_IMPORTED_MODULE_0___default = /*#__PURE__*/__webpack_require__.n(react__WEBPACK_IMPORTED_MODULE_0__);
@@ -5710,11 +5865,157 @@ function _extends() { return _extends = Object.assign ? Object.assign.bind() : f
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 
+
+// Matches --carousel-resize-duration, so the card finishes growing and
+// arriving at the same moment.
+const CAROUSEL_SCROLL_MS = 500;
+
+/**
+ * Centres the selected carousel card and reports which layout the row is in.
+ * Belongs in the component that owns the row, since it needs the scroller and
+ * every card element; the pill row only says which card to centre.
+ */
+function useCarouselScroll(activeId, isCarousel) {
+  const cardRefs = (0,react__WEBPACK_IMPORTED_MODULE_0__.useRef)(new Map());
+  const scrollerRef = (0,react__WEBPACK_IMPORTED_MODULE_0__.useRef)(null);
+  const glidingRef = (0,react__WEBPACK_IMPORTED_MODULE_0__.useRef)(false);
+  const [isSmallLayout, setIsSmallLayout] = (0,react__WEBPACK_IMPORTED_MODULE_0__.useState)(false);
+  const registerCard = (0,react__WEBPACK_IMPORTED_MODULE_0__.useCallback)((id, el) => {
+    if (el) {
+      cardRefs.current.set(id, el);
+    } else {
+      cardRefs.current.delete(id);
+    }
+  }, []);
+
+  // The scroll position that centres a card. Measured such that
+  // it holds regardless of text direction, padding or offset parent.
+  const centredScrollLeft = (0,react__WEBPACK_IMPORTED_MODULE_0__.useCallback)(id => {
+    const card = cardRefs.current.get(id);
+    const scroller = scrollerRef.current;
+    if (!card || !scroller) {
+      return null;
+    }
+    const cardRect = card.getBoundingClientRect();
+    const rowRect = scroller.getBoundingClientRect();
+    const offset = cardRect.left + cardRect.width / 2 - (rowRect.left + rowRect.width / 2);
+    return {
+      scroller,
+      left: scroller.scrollLeft + offset
+    };
+  }, []);
+  const settle = (0,react__WEBPACK_IMPORTED_MODULE_0__.useCallback)(id => {
+    const end = centredScrollLeft(id);
+    end?.scroller.scrollTo({
+      left: end.left,
+      behavior: "auto"
+    });
+  }, [centredScrollLeft]);
+
+  // Glide the selected card to the centre, re-measures the destination each
+  // frame because the card is still growing. Progress comes from elapsed time
+  // so the journey takes the same duration whatever its length or the display
+  // refresh rate.
+  (0,react__WEBPACK_IMPORTED_MODULE_0__.useEffect)(() => {
+    if (!isCarousel || !activeId) {
+      return undefined;
+    }
+    let frame;
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches || !window.performance) {
+      frame = window.requestAnimationFrame(() => settle(activeId));
+      return () => window.cancelAnimationFrame(frame);
+    }
+    const start = window.performance.now();
+    let easedBefore = 0;
+    glidingRef.current = true;
+    const step = now => {
+      const elapsed = Math.max(0, now - start);
+      const progress = Math.min(1, elapsed / CAROUSEL_SCROLL_MS);
+      if (progress >= 1) {
+        settle(activeId);
+        glidingRef.current = false;
+        return;
+      }
+      const target = centredScrollLeft(activeId);
+      if (target) {
+        const eased = 1 - Math.pow(1 - progress, 3);
+        // Cover this frame's share of whatever distance is left.
+        // Both follow the same curve, but this one still
+        // converges if something else scrolls the row.
+        const share = (eased - easedBefore) / (1 - easedBefore);
+        easedBefore = eased;
+        const current = target.scroller.scrollLeft;
+        target.scroller.scrollTo({
+          left: current + (target.left - current) * share,
+          behavior: "auto"
+        });
+      }
+      frame = window.requestAnimationFrame(step);
+    };
+    frame = window.requestAnimationFrame(step);
+    return () => {
+      glidingRef.current = false;
+      window.cancelAnimationFrame(frame);
+    };
+  }, [activeId, isCarousel, centredScrollLeft, settle]);
+  (0,react__WEBPACK_IMPORTED_MODULE_0__.useEffect)(() => {
+    const scroller = scrollerRef.current;
+    if (!isCarousel || !scroller || !activeId || !window.ResizeObserver) {
+      return undefined;
+    }
+    let frame = 0;
+    // Which layout the row is in is decided by a container query, read the
+    // marker it sets rather than duplicating the breakpoint here.
+    const readLayout = () => setIsSmallLayout(window.getComputedStyle(scroller).getPropertyValue("--carousel-layout").trim() === "small");
+    readLayout();
+    // Re-centre the card when the row is resized.
+    // Initialize a observer to watch for size changes and ignore callbacks
+    // that do not reflect an actual change.
+    let {
+      width,
+      height
+    } = scroller.getBoundingClientRect();
+    const observer = new window.ResizeObserver(() => {
+      readLayout();
+      const box = scroller.getBoundingClientRect();
+      if (glidingRef.current || box.width === width && box.height === height) {
+        return;
+      }
+      ({
+        width,
+        height
+      } = box);
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(() => {
+        settle(activeId);
+        // Crossing the breakpoint restarts the card's size transition which causes the
+        // centre keeps moving after this frame so settle again once it stops.
+        const running = cardRefs.current.get(activeId)?.getAnimations?.() ?? [];
+        if (running.length) {
+          Promise.allSettled(running.map(anim => anim.finished)).then(() => settle(activeId));
+        }
+      });
+    });
+    observer.observe(scroller, {
+      box: "border-box"
+    });
+    return () => {
+      observer.disconnect();
+      window.cancelAnimationFrame(frame);
+    };
+  }, [activeId, isCarousel, settle]);
+  return {
+    scrollerRef,
+    registerCard,
+    isSmallLayout
+  };
+}
 const CarouselNav = ({
   items = [],
   activeId,
   onSelect,
-  navLabel
+  navLabel,
+  compact
 }) => {
   const groupRef = (0,react__WEBPACK_IMPORTED_MODULE_0__.useRef)(null);
   const onSelectRef = (0,react__WEBPACK_IMPORTED_MODULE_0__.useRef)(onSelect);
@@ -5748,9 +6049,10 @@ const CarouselNav = ({
   }) => /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("moz-segmented-control-item", {
     key: id,
     value: id,
+    size: "small",
     label: pill.label?.raw,
     "data-l10n-id": pill.label?.string_id,
-    iconsrc: pill.icon
+    iconsrc: compact ? undefined : pill.icon
   }))));
 };
 
@@ -6813,9 +7115,8 @@ const PinnableSitesList = ({
     ...prev,
     [id]: state
   }));
-  const handlePin = async (event, item) => {
+  const handlePin = async (event, item, position) => {
     setItemState(item.id, PENDING);
-    _lib_multistage_utils_mjs__WEBPACK_IMPORTED_MODULE_2__.MultiStageUtils.sendActionTelemetry(messageId, item.id, "CLICK_BUTTON");
     const result = await handleAction(event, {
       type: "PIN_TASKBAR_TAB",
       needsAwait: true,
@@ -6834,7 +7135,9 @@ const PinnableSitesList = ({
       pinResultLabel = "failure";
     }
     _lib_multistage_utils_mjs__WEBPACK_IMPORTED_MODULE_2__.MultiStageUtils.sendActionTelemetry(messageId, item.id, "PIN_SITE", {
-      result: pinResultLabel
+      result: pinResultLabel,
+      position,
+      personalized: !!item.personalized
     });
 
     // Re-enable the button only on explicit failure so the user can retry.
@@ -6848,7 +7151,7 @@ const PinnableSitesList = ({
   };
   return /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("ul", {
     className: `pinnable-sites-list${alwaysShow ? " always-visible" : ""}`
-  }, items.map(item => {
+  }, items.map((item, index) => {
     const nameId = `pinnable-site-name-${item.id}`;
     const state = itemStates[item.id] ?? IDLE;
     const isPendingOrPinned = state === PENDING || state === PINNED;
@@ -6872,8 +7175,9 @@ const PinnableSitesList = ({
       className: "pinnable-sites-description"
     }))), /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("button", {
       className: "pinnable-sites-pin-button primary",
+      value: item.id,
       disabled: isPendingOrPinned,
-      onClick: e => handlePin(e, item),
+      onClick: e => handlePin(e, item, index + 1),
       "aria-describedby": nameId
     }, pinButtonLabel && /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement(_MSLocalized__WEBPACK_IMPORTED_MODULE_1__.Localized, {
       text: pinButtonLabel

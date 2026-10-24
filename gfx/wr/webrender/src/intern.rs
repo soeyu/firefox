@@ -444,7 +444,8 @@ macro_rules! enumerate_interners {
     ($macro_name: ident) => {
         $macro_name! {
             clip: ClipIntern,
-            prim: RectanglePrim,
+            // Rectangles are interned by the content display list builder, so
+            // they have no slot here. See doc/dl-builder-interning.md.
             normal_border: NormalBorderPrim,
             image_border: ImageBorder,
             image: Image,
@@ -523,12 +524,17 @@ pub struct InterningMemoryReport {
     pub interners: InternerSubReport,
     ///
     pub data_stores: InternerSubReport,
+    /// The follower stores for types interned by the content display list
+    /// builder rather than by a scene builder interner. Same field list; a
+    /// type is accounted under one or the other.
+    pub dl_stores: InternerSubReport,
 }
 
 impl ::std::ops::AddAssign for InterningMemoryReport {
     fn add_assign(&mut self, other: InterningMemoryReport) {
         self.interners += other.interners;
         self.data_stores += other.data_stores;
+        self.dl_stores += other.dl_stores;
     }
 }
 

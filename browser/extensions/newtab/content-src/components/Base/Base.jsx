@@ -43,6 +43,7 @@ import {
   isSideBySideActive,
   isSpaceOverridden,
   isSpacesActive,
+  isSpacesArrowsAssigned,
   SPACE_IDS,
   sideBySideBandClasses,
   spacesBandClasses,
@@ -313,6 +314,21 @@ export class BaseContent extends React.PureComponent {
 
         if (hash === "#customize-topics") {
           this.toggleSectionsMgmtPanel();
+        }
+      } else if (hash === "#customize-widgets") {
+        const currentPrefs = this.props.Prefs.values;
+        // The widgets subpanel only exists with Nova and a visible widgets
+        // container. Opening it in any other state leaves the main view
+        // unscrollable, so open the main view, where the widget toggles are
+        // without Nova.
+        // @nova-cleanup(remove-conditional): Remove the novaEnabled check; keep the isWidgetsContainerVisible check and both branches
+        if (
+          currentPrefs[PREF_NOVA_ENABLED] &&
+          isWidgetsContainerVisible(currentPrefs)
+        ) {
+          this.openWidgetsPanel();
+        } else {
+          this.openCustomizationMenu();
         }
       } else if (this.props.App.customizeMenuVisible) {
         this.closeCustomizationMenu();
@@ -1148,6 +1164,7 @@ export class BaseContent extends React.PureComponent {
       const hasManyTopSitesRows = topSitesEnabled && prefs.topSitesRows > 2;
       // Recent activity is then alone in the band, and the logo leaves the sidebar.
       const noFeedOrContentWidgets = !pocketEnabled && !hasContentWidgets;
+      const spacesActive = isSpacesActive(prefs, props.DiscoveryStream);
       // Gated here rather than in CSS, so the stylesheet never has to infer
       // whether widgets or stories exist. The lead class alone means the
       // experiment is assigned, which is enough to frame a lone section; the
@@ -1162,9 +1179,7 @@ export class BaseContent extends React.PureComponent {
         // The feed state too, or the thematic variant can class the band for
         // spaces while DiscoveryStreamBase, which drops a space with no
         // sections, has fallen back to the flat layout.
-        ...(isSpacesActive(prefs, props.DiscoveryStream)
-          ? spacesBandClasses(prefs)
-          : []),
+        ...(spacesActive ? spacesBandClasses(prefs) : []),
         noFeedOrContentWidgets && "highlights-only",
       ]
         .filter(Boolean)
@@ -1177,8 +1192,10 @@ export class BaseContent extends React.PureComponent {
           (this.props.ExternalComponents.components.find(
             c => c.type === "SEARCH"
           )?.attributes ?? {});
-      const logoShouldBeCentered =
-        noFeedOrContentWidgets && !hasManyTopSitesRows && !searchHasOwnRow;
+      const contentShouldBeLowered =
+        noFeedOrContentWidgets && !hasManyTopSitesRows;
+      const logoShouldBeCentered = contentShouldBeLowered && !searchHasOwnRow;
+      const searchShouldBeLowered = contentShouldBeLowered && searchHasOwnRow;
       // The 5-column story grid is driven by the layout data alone: the content
       // band only widens when every section has a columnCount: 5 entry. Sections
       // share one subgrid track count, so a layout set where only some sections
@@ -1246,7 +1263,7 @@ export class BaseContent extends React.PureComponent {
             className={`nova-outer-wrapper${this.state.fixedSearch ? " stuck-search" : ""}${searchHasOwnRow ? " search-has-own-row" : ""}`}
           >
             <div
-              className={`container nova-enabled${logoShouldBeCentered ? " logo-in-content" : ""}${searchHasOwnRow ? " search-has-own-row" : ""}${hasFiveColumnLayout ? " sections-5-col" : ""}`}
+              className={`container nova-enabled${logoShouldBeCentered ? " logo-in-content" : ""}${searchHasOwnRow ? " search-has-own-row" : ""}${searchShouldBeLowered ? " search-lowered" : ""}${hasFiveColumnLayout ? " sections-5-col" : ""}`}
             >
               <aside className="sidebar-inline-start">
                 {!prefs.hideLogo && !logoShouldBeCentered && !isPageEmpty && (
@@ -1356,6 +1373,11 @@ export class BaseContent extends React.PureComponent {
                   this.renderWallpaperAttribution()}
               </main>
             </div>
+            {/* The floating arrows panel runs to the bottom of the page, past
+            the band. See _Spaces.scss. */}
+            {spacesActive && isSpacesArrowsAssigned(prefs) && (
+              <div className="spaces-panel-backdrop" />
+            )}
             <ConfirmDialog />
             <menu className="personalizeButtonWrapper nova-enabled">
               <CustomizeMenu

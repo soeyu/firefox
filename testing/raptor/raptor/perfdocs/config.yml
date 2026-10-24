@@ -260,6 +260,7 @@ suites:
             idbCurNext: "Measures IDBIndex cursor iteration via continue() over many rows sharing an index value"
             idbCurPKey: "Measures IDBIndex cursor iteration via continuePrimaryKey() over many rows sharing an index value"
             idbCurPrev: "Measures IDBIndex cursor iteration via continue() in the prev direction over many rows sharing an index value"
+            busydoh: "Distribution of DoH lookup times while a local page replays the request timeline recorded from detroitnews.com. The page, its hosts and the DoH resolver are all served by a local test server."
             dns-multi: "Tests multi-domain DNS lookup and pageload performance via native DNS."
             dns-native: "Tests DNS lookup time via native DNS."
             trr-cira: "Tests DNS lookup time on a CIRA TRR server."
@@ -304,6 +305,7 @@ suites:
             prefetch-list-eager: "Speculation Rules prefetch test using a list-source rule (eager eagerness): the inline speculationrules script lists the target URLs explicitly; matching links are present so the prefetch can be triggered on the slightest hover (list-rule eagerness is browser-defined), then the link is clicked to serve the navigation from the prefetch cache."
             prefetch-list-moderate: "Speculation Rules prefetch test using a list-source rule (moderate eagerness): the inline speculationrules script lists the target URLs explicitly; matching links are present so the prefetch can be triggered after ~200 ms of sustained hover (list-rule eagerness is browser-defined), then the link is clicked to serve the navigation from the prefetch cache."
             prefetch-list-conservative: "Speculation Rules prefetch test using a list-source rule (conservative eagerness): the inline speculationrules script lists the target URLs explicitly; matching links are present so the prefetch can be triggered on pointerdown, which is held so the prefetch can complete before release navigates (list-rule eagerness is browser-defined)."
+            prefetch-list-inflight: "Speculation Rules prefetch test using a list-source rule (moderate eagerness, in-flight activation): the inline speculationrules script lists the target URLs explicitly; ~200 ms of sustained hover triggers the prefetch and the link is clicked partway through the target's server stall, so the navigation starts while the prefetch is still in flight and must wait for it to complete rather than refetching the page."
             tp6-bench: >
                 A pageload benchmark test that quickly runs through a selection of the
                 pages available to produce a single overall metric for fcp, lcp, and

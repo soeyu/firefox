@@ -31,6 +31,8 @@ const SUPPORTED_AUTOFILL_CREDITCARDS_CVV_PREF =
   "extensions.formautofill.creditCards.cvv.supported";
 const ENABLED_AUTOFILL_CREDITCARDS_CVV_PREF =
   "extensions.formautofill.creditCards.cvv.enabled";
+const CREDITCARDS_RUST_STORAGE_ACTIVE_PREF =
+  "extensions.formautofill.creditCards.storage.rust.active";
 const AUTOFILL_ADDRESSES_AUTOCOMPLETE_OFF_PREF =
   "extensions.formautofill.addresses.ignoreAutocompleteOff";
 const ENABLED_AUTOFILL_CAPTURE_ON_FORM_REMOVAL_PREF =
@@ -49,6 +51,8 @@ const AUTOFILL_REFILL_ON_SITE_CLEARING_VALUE_PREF =
   "extensions.formautofill.heuristics.refillOnSiteClearingFields";
 const AUTOFILL_REFILL_ON_SITE_CLEARING_VALUE_TIMEOUT_PREF =
   "extensions.formautofill.heuristics.refillOnSiteClearingFields.timeout";
+const SUPPRESS_UNRECOGNIZED_AUTOCOMPLETE_PREF =
+  "extensions.formautofill.suppressUnrecognizedAutocomplete.enabled";
 
 export const FormAutofill = {
   ENABLED_AUTOFILL_ADDRESSES_PREF,
@@ -59,6 +63,7 @@ export const FormAutofill = {
   ENABLED_AUTOFILL_CREDITCARDS_PREF,
   SUPPORTED_AUTOFILL_CREDITCARDS_CVV_PREF,
   ENABLED_AUTOFILL_CREDITCARDS_CVV_PREF,
+  CREDITCARDS_RUST_STORAGE_ACTIVE_PREF,
   ENABLED_AUTOFILL_DETECT_DYNAMIC_FORM_CHANGES_PREF,
   AUTOFILL_CREDITCARDS_OS_AUTH_LOCKED_PREF,
   AUTOFILL_CREDITCARDS_AUTOCOMPLETE_OFF_PREF,
@@ -169,12 +174,17 @@ export const FormAutofill = {
 
   /**
    * Whether the CVV feature has been rolled out to this user. Takes the same
-   * "on"/"off" values as the other supported prefs.
+   * "on"/"off" values as the other supported prefs, and needs the Rust credit
+   * card store to be the one serving: only that store encrypts the security
+   * code, and the JSON store would keep it in the clear.
    *
    * @returns {boolean}
    */
   get isAutofillCreditCardCVVSupported() {
-    return this._autofillCreditCardCVVSupportedPref == "on";
+    return (
+      this._autofillCreditCardCVVSupportedPref == "on" &&
+      this._isCreditCardRustStorageActive
+    );
   },
 
   /**
@@ -269,6 +279,12 @@ XPCOMUtils.defineLazyPreferenceGetter(
 );
 XPCOMUtils.defineLazyPreferenceGetter(
   FormAutofill,
+  "suppressUnrecognizedAutocomplete",
+  SUPPRESS_UNRECOGNIZED_AUTOCOMPLETE_PREF,
+  false
+);
+XPCOMUtils.defineLazyPreferenceGetter(
+  FormAutofill,
   "isAutofillCreditCardsHideUI",
   AUTOFILL_CREDITCARDS_HIDE_UI_PREF
 );
@@ -282,6 +298,12 @@ XPCOMUtils.defineLazyPreferenceGetter(
   FormAutofill,
   "_isAutofillCreditCardCVVUserEnabled",
   ENABLED_AUTOFILL_CREDITCARDS_CVV_PREF,
+  false
+);
+XPCOMUtils.defineLazyPreferenceGetter(
+  FormAutofill,
+  "_isCreditCardRustStorageActive",
+  CREDITCARDS_RUST_STORAGE_ACTIVE_PREF,
   false
 );
 XPCOMUtils.defineLazyPreferenceGetter(

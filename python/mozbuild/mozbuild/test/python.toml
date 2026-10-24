@@ -91,6 +91,8 @@ subsuite = "mozbuild"
 
 ["frontend/test_file_info_reviewers.py"]
 
+["frontend/test_gyp_reader.py"]
+
 ["frontend/test_l10n_manifest.py"]
 
 ["frontend/test_namespaces.py"]
@@ -120,6 +122,8 @@ subsuite = "mozbuild"
 ["test_dotproperties.py"]
 
 ["test_expression.py"]
+
+["test_generate_sbom.py"]
 
 ["test_jarmaker.py"]
 
@@ -176,6 +180,12 @@ subsuite = "mozbuild"
 ["test_vendor_sbom_cargo.py"]
 
 ["test_vendor_sbom_cyclonedx.py"]
+
+["test_vendor_sbom_gradle.py"]
+
+["test_vendor_sbom_npm.py"]
+
+["test_vendor_sbom_python.py"]
 
 ["test_vendor_tools.py"]
 skip-if = ["os == 'win'"] # Windows doesn't have the same path seperator as linux, and we just don't need to run it there

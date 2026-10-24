@@ -12,7 +12,6 @@
 #include "WebGL2Context.h"
 #include "WebGLBuffer.h"
 #include "WebGLContext.h"
-#include "WebGLContextUtils.h"
 #include "WebGLFormats.h"
 #include "WebGLFramebuffer.h"
 #include "WebGLProgram.h"
@@ -1425,8 +1424,6 @@ void WebGLContext::UseProgram(WebGLProgram* prog) {
     return;
   }
 
-  if (!ValidateObject("prog", *prog)) return;
-
   if (!prog->UseProgram()) return;
 
   mCurrentProgram = prog;
@@ -1501,8 +1498,6 @@ void WebGLContext::Viewport(GLint x, GLint y, GLsizei width, GLsizei height) {
 void WebGLContext::CompileShader(WebGLShader& shader) {
   const FuncScope funcScope(*this, "compileShader");
   if (IsContextLost()) return;
-
-  if (!ValidateObject("shader", shader)) return;
 
   shader.CompileShader();
 }
@@ -1591,6 +1586,23 @@ void WebGLContext::SampleCoverage(GLclampf value, WebGLboolean invert) {
   if (IsContextLost()) return;
 
   gl->fSampleCoverage(value, invert);
+}
+
+void WebGLContext::ClipControlEXT(const GLenum origin, const GLenum depth) {
+  const FuncScope funcScope(*this, "clipControlEXT");
+  if (IsContextLost()) return;
+  MOZ_RELEASE_ASSERT(IsExtensionEnabled(WebGLExtensionID::EXT_clip_control));
+
+  if (origin != LOCAL_GL_LOWER_LEFT && origin != LOCAL_GL_UPPER_LEFT) {
+    ErrorInvalidEnumArg("origin", origin);
+    return;
+  }
+  if (depth != LOCAL_GL_NEGATIVE_ONE_TO_ONE && depth != LOCAL_GL_ZERO_TO_ONE) {
+    ErrorInvalidEnumArg("depth", depth);
+    return;
+  }
+
+  gl->fClipControl(origin, depth);
 }
 
 }  // namespace mozilla

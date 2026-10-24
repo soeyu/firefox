@@ -263,7 +263,7 @@ def cargo(
             build = command_context._spawn(BuildDriver)
             ret = build.build(
                 command_context.metrics,
-                what=["pre-export", "export"],
+                what=["rust-prereqs"],
                 jobs=jobs,
                 verbose=verbose,
                 mach_context=command_context._mach_context,
@@ -302,11 +302,8 @@ def cargo(
     else:
         crates = ["gkrust"]
 
-    use_legacy = command_context.substs.get("MOZ_USE_LEGACY_CARGO_INVOCATION")
-
-    if not use_legacy:
-        jobs = command_context.resolve_num_jobs(jobs)
-        command_context.ensure_backend_current()
+    jobs = command_context.resolve_num_jobs(jobs)
+    command_context.ensure_backend_current()
 
     for crate in crates:
         crate_info = crates_and_roots.get(crate, None)
@@ -316,76 +313,24 @@ def cargo(
             # other crate in the gkrust workspace and target it explicitly via `-p`.
             #
             # gkrust's features and lib/bin targets don't apply to an individual crate,
-            # so pass the target explicitly instead, and let the makefiles skip the
-            # automatically-computed arguments via CARGO_NO_AUTO_ARG below.
+            # so pass the target explicitly instead of the automatically-computed
+            # arguments.
             crate_info = crates_and_roots["gkrust"]
             package_args = ["-p", crate, "--target={arch}"]
 
-        if not use_legacy:
-            ret = _run_cargo_command(
-                command_context,
-                crate,
-                crate_info,
-                cargo_command,
-                package_args,
-                subcommand_args,
-                cargo_build_flags,
-                cargo_extra_flags,
-                message_format_json,
-                continue_on_error,
-                jobs,
-                verbose,
-            )
-            if ret != 0:
-                return ret
-            continue
-
-        directory = crate_info["directory"]
-        targets = [
-            "force-cargo-library-%s" % cargo_command,
-            "force-cargo-host-library-%s" % cargo_command,
-            "force-cargo-program-%s" % cargo_command,
-            "force-cargo-host-program-%s" % cargo_command,
-        ]
-        # you can use these variables in 'cargo_build_flags'
-        subst = {
-            "arch": '"$(RUST_TARGET)"',
-            "crate": crate,
-            "directory": directory,
-            "features": '"$(RUST_LIBRARY_FEATURES)"',
-            "manifest": str(Path(topsrcdir / directory / "Cargo.toml")),
-            "target": "--lib" if crate_info["kind"] == "library" else f"--bin={crate}",
-            "topsrcdir": str(topsrcdir),
-        }
-
-        cli_flags = " ".join(_substituted(package_args + subcommand_args, subst))
-        if cli_flags:
-            targets = targets + [f"cargo_extra_cli_flags={cli_flags}"]
-        if cargo_build_flags:
-            build_flags = " ".join(_substituted(cargo_build_flags, subst))
-            targets = targets + [f"cargo_build_flags={build_flags}"]
-
-        append_env = {}
-        if cargo_extra_flags:
-            append_env["CARGO_EXTRA_FLAGS"] = " ".join(
-                _substituted(cargo_extra_flags, subst)
-            )
-        if message_format_json:
-            append_env["USE_CARGO_JSON_MESSAGE_FORMAT"] = "1"
-        if continue_on_error:
-            append_env["CARGO_CONTINUE_ON_ERROR"] = "1"
-        if cargo_build_flags or package_args:
-            append_env["CARGO_NO_AUTO_ARG"] = "1"
-
-        ret = command_context._run_make(
-            srcdir=False,
-            directory=directory,
-            ensure_exit_code=0,
-            silent=not verbose,
-            print_directory=False,
-            target=targets,
-            num_jobs=jobs,
-            append_env=append_env,
+        ret = _run_cargo_command(
+            command_context,
+            crate,
+            crate_info,
+            cargo_command,
+            package_args,
+            subcommand_args,
+            cargo_build_flags,
+            cargo_extra_flags,
+            message_format_json,
+            continue_on_error,
+            jobs,
+            verbose,
         )
         if ret != 0:
             return ret
@@ -457,7 +402,7 @@ def _run_cargo_command(
     invocation = replace(
         invocation,
         verbose=invocation.verbose or verbose,
-        json_output=invocation.json_output or message_format_json,
+        json_output=message_format_json,
         cargo_extra_flags=extra_flags or invocation.cargo_extra_flags,
     )
 
@@ -1187,7 +1132,7 @@ def gtest(
         return 1
 
     res = command_context._mach_context.commands.dispatch(
-        "build", command_context._mach_context, what=["recurse_gtest"]
+        "build", command_context._mach_context, what=["gtest"]
     )
     if res:
         print("Could not build xul-gtest")
@@ -1632,10 +1577,16 @@ def source_package(command_context, output, upload):
                 )
                 return 1
 
-        command_context._run_make(
-            target="buildid.h",
-            ensure_exit_code=True,
+        rc = command_context._mach_context.commands.dispatch(
+            "build",
+            command_context._mach_context,
+            what=["buildid.h"],
+            directory=".",
+            priority="normal",
+            no_completion_messages=True,
         )
+        if rc != 0:
+            return rc
         with open(os.path.join(command_context.topobjdir, "buildid.h")) as fd:
             _, _, buildid = fd.read().split()
 
@@ -4085,7 +4036,12 @@ def repackage_desktop_file(
 @CommandArgument(
     "--verbose", action="store_true", help="Log informative status messages."
 )
-def package_l10n(command_context, verbose=False, locales=[]):
+@CommandArgument(
+    "--package-tests",
+    action="store_true",
+    help="Package the multi-locale test archives after packaging.",
+)
+def package_l10n(command_context, locales, verbose=False, package_tests=False):
     if "RecursiveMake" not in command_context.substs["BUILD_BACKENDS"]:
         print(
             "Artifact builds do not support localization. "
@@ -4184,6 +4140,29 @@ def package_l10n(command_context, verbose=False, locales=[]):
             + "to install the multi-locale geckoview_example and test APKs."
         )
 
+    if package_tests:
+        command_context._run_make(
+            directory=command_context.topobjdir,
+            target=["package-tests", "AB_CD=multi"],
+            pass_thru=True,
+            ensure_exit_code=True,
+        )
+
+    return 0
+
+
+@SubCommand(
+    "package-multi-locale",
+    "upload",
+    description="Copy the multi-locale package to $UPLOAD_PATH.",
+)
+def package_l10n_upload(command_context):
+    command_context._run_make(
+        directory=command_context.topobjdir,
+        target=["upload", "AB_CD=multi"],
+        pass_thru=True,
+        ensure_exit_code=True,
+    )
     return 0
 
 

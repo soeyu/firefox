@@ -31,11 +31,7 @@
   <string name="home_screen_shortcut_open_new_tab_2">Neuvo feuggio</string>
   <!-- Shortcut action to open new private tab -->
   <string name="home_screen_shortcut_open_new_private_tab_2">Neuvo feuggio privou</string>
-  <!--
-    Browser Fragment
-
-    Content description (not visible, for screen readers etc.): Navigate backward (browsing history)
-  -->
+  <!-- Content description (not visible, for screen readers etc.): Navigate backward (browsing history) -->
   <string name="browser_menu_back">Inderê</string>
   <!-- Content description (not visible, for screen readers etc.): Navigate forward (browsing history) -->
   <string name="browser_menu_forward">Avanti</string>
@@ -109,7 +105,11 @@
     Title for the settings page
   -->
   <string name="settings">Inpostaçioin</string>
-  <!-- Preference category for general settings -->
+  <!--
+    Preferences
+
+    Preference category for general settings
+  -->
   <string name="preferences_category_general">Generale</string>
   <!-- Preference category for all links about Fenix -->
   <string name="preferences_category_about">Informaçioin</string>
@@ -317,12 +317,6 @@
     %1$d is the number of bookmarks selected
   -->
   <string name="history_multi_select_title">%1$d seleçionæ</string>
-  <!-- Text for the header that groups the history the past 7 days -->
-  <string name="history_7_days">Urtimi 7 giorni</string>
-  <!-- Text for the header that groups the history the past 30 days -->
-  <string name="history_30_days">Urtimi 30 giorni</string>
-  <!-- Text for the header that groups the history older than the last month -->
-  <string name="history_older">Ciù vegio</string>
   <!-- Text shown when no history exists -->
   <string name="history_empty_message">No gh\'é stöia</string>
   <!--

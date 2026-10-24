@@ -7,8 +7,11 @@ package org.mozilla.fenix.summarization
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.verify
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
@@ -17,8 +20,10 @@ import mozilla.components.browser.state.state.BrowserState
 import mozilla.components.browser.state.state.ContentState
 import mozilla.components.browser.state.state.EngineState
 import mozilla.components.browser.state.state.TabSessionState
+import mozilla.components.browser.state.state.createCustomTab
 import mozilla.components.browser.state.store.BrowserStore
 import mozilla.components.compose.base.text.Text
+import mozilla.components.compose.menu.data.MenuItemTitle
 import mozilla.components.compose.menu.data.StandardMenuItem
 import mozilla.components.compose.menu.ui.MenuItemIconRes
 import mozilla.components.compose.menu.ui.MenuItemState
@@ -26,9 +31,14 @@ import mozilla.components.concept.engine.EngineSession
 import mozilla.components.ui.icons.R as iconsR
 import org.junit.Test
 import org.mozilla.fenix.R
+import org.mozilla.fenix.components.menu.MenuFragmentDirections
+import org.mozilla.fenix.components.menu.MenuTarget
+import org.mozilla.fenix.components.menu.fake.FakeMenuHost
+import org.mozilla.fenix.components.menu.fake.reachableEvents
 import org.mozilla.fenix.components.menu.store.MenuAction
 import org.mozilla.fenix.summarization.eligibility.SummarizationEligibilityChecker
 import org.mozilla.fenix.summarization.onboarding.SummarizationFeatureDiscoveryConfiguration
+import org.mozilla.fenix.summarization.onboarding.SummarizeDiscoveryEvent
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class SummarizePageMenuItemProviderTest {
@@ -50,6 +60,23 @@ class SummarizePageMenuItemProviderTest {
     @Test
     fun `WHEN the page can be summarized THEN allow summarizing it`() = runTest {
         val provider = provider(eligibilityChecker = eligibilityChecker(isEligible = true))
+
+        runCurrent()
+
+        assertEquals(summarizePageItem(isEnabled = true), provider.itemFlow.value)
+    }
+
+    @Test
+    fun `GIVEN a custom tab WHEN the page can be summarized THEN allow summarizing it`() = runTest {
+        val customTab =
+            createCustomTab(url = "https://mozilla.org", id = "customTabId", engineSession = mockk(relaxed = true))
+        val store = BrowserStore(BrowserState(customTabs = listOf(customTab)))
+        val provider =
+            provider(
+                browserStore = store,
+                eligibilityChecker = eligibilityChecker(isEligible = true),
+                target = MenuTarget.CustomTab("customTabId"),
+            )
 
         runCurrent()
 
@@ -85,14 +112,126 @@ class SummarizePageMenuItemProviderTest {
         assertEquals(summarizePageItem(isEnabled = false, isHighlighted = true), provider.itemFlow.value)
     }
 
+    @Test
+    fun `WHEN clicking the item THEN show the summary of the current page in place of the menu`() = runTest {
+        val menu = FakeMenuHost()
+
+        provider().onEvent(MenuAction.Navigate.Summarizer, menu)
+
+        assertEquals(
+            MenuFragmentDirections.actionMenuFragmentToSummarizationFragment(sessionId = TAB_ID),
+            menu.directions,
+        )
+    }
+
+    @Test
+    fun `WHEN tapping summarize with a custom tab THEN show the summary of the custom tab`() = runTest {
+        val customTab = createCustomTab(url = "https://mozilla.org", id = CUSTOM_TAB_ID)
+        val store = BrowserStore(BrowserState(customTabs = listOf(customTab)))
+        val menu = FakeMenuHost()
+
+        provider(browserStore = store, target = MenuTarget.CustomTab(CUSTOM_TAB_ID))
+            .onEvent(MenuAction.Navigate.Summarizer, menu)
+
+        assertEquals(
+            MenuFragmentDirections.actionMenuFragmentToSummarizationFragment(sessionId = CUSTOM_TAB_ID),
+            menu.directions,
+        )
+    }
+
+    @Test
+    fun `GIVEN the current page can be summarized WHEN the item is shown THEN count it as noticed`() = runTest {
+        val settings = discoverySettings()
+        val provider = provider(settings = settings, eligibilityChecker = eligibilityChecker(isEligible = true))
+
+        provider.onEvent(MenuAction.OnSummarizationMenuExposed, FakeMenuHost())
+        runCurrent()
+
+        verify { settings.cacheDiscoveryEvent(SummarizeDiscoveryEvent.MenuItemExposure) }
+    }
+
+    @Test
+    fun `GIVEN summarizing is not offered WHEN the item is shown THEN don't count it as noticed`() = runTest {
+        val settings = discoverySettings(showMenuItem = false)
+        val provider = provider(settings = settings, eligibilityChecker = eligibilityChecker(isEligible = true))
+
+        provider.onEvent(MenuAction.OnSummarizationMenuExposed, FakeMenuHost())
+        runCurrent()
+
+        verify(exactly = 0) { settings.cacheDiscoveryEvent(any()) }
+    }
+
+    @Test
+    fun `GIVEN a private page WHEN the item is shown THEN don't count it as noticed`() = runTest {
+        val settings = discoverySettings()
+        val provider =
+            provider(
+                browserStore = browserStore(isPrivate = true),
+                settings = settings,
+                eligibilityChecker = eligibilityChecker(isEligible = true),
+            )
+
+        provider.onEvent(MenuAction.OnSummarizationMenuExposed, FakeMenuHost())
+        runCurrent()
+
+        verify(exactly = 0) { settings.cacheDiscoveryEvent(any()) }
+    }
+
+    @Test
+    fun `GIVEN the current page cannot be summarized WHEN the item is shown THEN don't count it as noticed`() =
+        runTest {
+            val settings = discoverySettings()
+            val provider = provider(settings = settings, eligibilityChecker = eligibilityChecker(isEligible = false))
+
+            provider.onEvent(MenuAction.OnSummarizationMenuExposed, FakeMenuHost())
+            runCurrent()
+
+            verify(exactly = 0) { settings.cacheDiscoveryEvent(any()) }
+        }
+
+    @Test
+    fun `GIVEN no selected tab WHEN the item is shown THEN don't count it as noticed`() = runTest {
+        val settings = discoverySettings()
+        val provider =
+            provider(
+                browserStore = BrowserStore(),
+                settings = settings,
+                eligibilityChecker = eligibilityChecker(isEligible = true),
+            )
+
+        provider.onEvent(MenuAction.OnSummarizationMenuExposed, FakeMenuHost())
+        runCurrent()
+
+        verify(exactly = 0) { settings.cacheDiscoveryEvent(any()) }
+    }
+
+    @Test
+    fun `WHEN the page can be summarized or not THEN handle all events the item can dispatch and no others`() =
+        runTest {
+            listOf(true, false).forEach { isEligible ->
+                val provider = provider(eligibilityChecker = eligibilityChecker(isEligible = isEligible))
+                runCurrent()
+
+                val events = requireNotNull(provider.itemFlow.value).reachableEvents()
+
+                assertTrue(events.all { provider.handles(it) }, "Not all of $events are handled")
+                assertFalse(provider.handles(MenuAction.Navigate.Translate))
+            }
+        }
+
+    private fun discoverySettings(showMenuItem: Boolean = true): SummarizationFeatureDiscoveryConfiguration =
+        mockk(relaxed = true) { every { this@mockk.showMenuItem } returns showMenuItem }
+
     // The item is kept up to date, and the page checked, on a scope that runTest cancels at the end of each test.
     private fun TestScope.provider(
         browserStore: BrowserStore = browserStore(),
         settings: SummarizationFeatureDiscoveryConfiguration = settings(),
         eligibilityChecker: SummarizationEligibilityChecker = eligibilityChecker(isEligible = false),
+        target: MenuTarget = MenuTarget.BrowserTab,
     ) =
         SummarizePageMenuItemProvider(
             browserStore = browserStore,
+            target = target,
             summarizationSettings = settings,
             eligibilityChecker = eligibilityChecker,
             scope = backgroundScope,
@@ -130,7 +269,7 @@ class SummarizePageMenuItemProviderTest {
         isHighlighted: Boolean = false,
     ) =
         StandardMenuItem(
-            title = Text.Resource(R.string.browser_menu_summarize_page),
+            title = MenuItemTitle(Text.Resource(R.string.browser_menu_summarize_page)),
             icon = MenuItemIconRes(iconsR.drawable.mozac_ic_lightning_24, isHighlighted = isHighlighted),
             onClickEvent = MenuAction.Navigate.Summarizer,
             onShownEvent = MenuAction.OnSummarizationMenuExposed,
@@ -144,5 +283,6 @@ class SummarizePageMenuItemProviderTest {
 
     private companion object {
         const val TAB_ID = "tab1"
+        const val CUSTOM_TAB_ID = "customTabId"
     }
 }

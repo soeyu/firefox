@@ -95,7 +95,7 @@ static PROFILER_PRESETS: &'static[(&'static str, &'static str)] = &[
     (&"GPU Memory", &"External image mem, Atlas textures mem, Standalone textures mem, Picture tiles mem, Render targets mem, Depth targets mem, Atlas items mem, GPU cache mem, GPU buffer mem, GPU total mem"),
     (&"CPU Memory", &"Image templates, Image templates mem, Font templates,Font templates mem, DisplayList mem"),
     (&"Memory", &"$CPU,CPU Memory, ,$GPU,GPU Memory"),
-    (&"Interners", "Intern insertions,Intern removals,Off-grid coords, ,Interned primitives,Interned clips,Interned pictures,Interned text runs,Interned normal borders,Interned image borders,Interned images,Interned YUV images,Interned line decorations,Interned linear gradients,Interned radial gradients,Interned conic gradients,Interned filter data,Interned backdrop renders, Interned backdrop captures"),
+    (&"Interners", "Intern insertions,Intern removals,Off-grid coords, ,Interned primitives,Interned clips,Interned pictures,Interned text runs,Interned normal borders,Interned image borders,Interned images,Interned YUV images,Interned line decorations,Interned linear gradients,Interned radial gradients,Interned conic gradients,Interned filter data,Interned backdrop renders, Interned backdrop captures,Interned polygons,Interned box-shadows"),
     // Gpu sampler queries (need the pref gfx.webrender.debug.gpu-sampler-queries).
     (&"GPU samplers", &"Alpha targets samplers,Transparent pass samplers,Opaque pass samplers,Total samplers"),
 
@@ -597,6 +597,20 @@ impl Profiler {
 
             ui: Vec::new(),
         }
+    }
+
+    /// The named values of the counters that were set in a transaction profile.
+    pub fn counter_values(&self, profile: &TransactionProfile) -> Vec<ProfileCounterValue> {
+        profile.events.iter().zip(self.counters.iter()).filter_map(|(event, counter)| {
+            match *event {
+                Event::Value(value) => Some(ProfileCounterValue {
+                    name: counter.name,
+                    unit: counter.unit,
+                    value,
+                }),
+                _ => None,
+            }
+        }).collect()
     }
 
     pub fn set_parameter(&mut self, param: &api::Parameter) {
@@ -1621,6 +1635,14 @@ impl Expected<i64> {
             },
         }
     }
+}
+
+/// The value a profiler counter was set to in one transaction profile.
+#[derive(Copy, Clone, Debug)]
+pub struct ProfileCounterValue {
+    pub name: &'static str,
+    pub unit: &'static str,
+    pub value: f64,
 }
 
 pub struct CounterDescriptor {

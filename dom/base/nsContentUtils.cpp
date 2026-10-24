@@ -124,6 +124,7 @@
 #ifdef FUZZING
 #  include "mozilla/StaticPrefs_fuzzing.h"
 #endif
+#include "mozilla/StaticPrefs_mathml.h"
 #include "mozilla/StaticPrefs_nglayout.h"
 #include "mozilla/StaticPrefs_privacy.h"
 #include "mozilla/StaticPrefs_test.h"
@@ -4769,7 +4770,7 @@ void nsContentUtils::GenerateStateKey(nsIContent* aContent, Document* aDocument,
           appendedForm = true;
         } else {
           KeyAppendString("fn"_ns, aKey);
-          int32_t index = htmlForms->IndexOf(formElement, false);
+          int32_t index = htmlForms->IndexOf(formElement);
           if (index <= -1) {
             //
             // XXX HACK this uses some state that was dumped into the document
@@ -4811,7 +4812,7 @@ void nsContentUtils::GenerateStateKey(nsIContent* aContent, Document* aDocument,
           generatedUniqueKey = true;
         } else {
           KeyAppendString("dn"_ns, aKey);
-          int32_t index = htmlFormControls->IndexOf(aContent, true);
+          int32_t index = htmlFormControls->IndexOf(aContent);
           if (index > -1) {
             KeyAppendInt(index, aKey);
             generatedUniqueKey = true;
@@ -6884,14 +6885,15 @@ void nsContentUtils::XPCOMShutdown() { nsContentUtils::DropFragmentParsers(); }
 static void SetAndFilterHTML(
     FragmentOrElement* aTarget, Element* aContext, const nsAString& aHTML,
     const OwningSanitizerOrSanitizerConfigOrSanitizerPresets& aSanitizerOptions,
-    const bool aSafe, ErrorResult& aError) {
+    nsContentUtils::SanitizerMode aSanitizerMode, ErrorResult& aError) {
+  const bool safe = aSanitizerMode == nsContentUtils::SanitizerMode::Safe;
   const RefPtr<Document> doc = aTarget->OwnerDoc();
 
   // Step 1. If safe and contextElement’s local name is "script" and
   // contextElement’s namespace is the HTML namespace or the SVG namespace, then
   // return.
-  if (aSafe && (aContext->IsHTMLElement(nsGkAtoms::script) ||
-                aContext->IsSVGElement(nsGkAtoms::script))) {
+  if (safe && (aContext->IsHTMLElement(nsGkAtoms::script) ||
+               aContext->IsSVGElement(nsGkAtoms::script))) {
     nsContentUtils::ReportToConsole(nsIScriptError::warningFlag, "DOM"_ns, doc,
                                     PropertiesFile::DOM_PROPERTIES,
                                     "SetHTMLScript");
@@ -6907,7 +6909,7 @@ static void SetAndFilterHTML(
     return;
   }
   RefPtr<Sanitizer> sanitizer =
-      Sanitizer::GetInstance(window, aSanitizerOptions, aSafe, aError);
+      Sanitizer::GetInstance(window, aSanitizerOptions, safe, aError);
   if (aError.Failed()) {
     return;
   }
@@ -6945,8 +6947,8 @@ static void SetAndFilterHTML(
   nsAtom* contextLocalName = aContext->NodeInfo()->NameAtom();
   int32_t contextNameSpaceID = aContext->GetNameSpaceID();
   int32_t flags =
-      aSafe ? nsContentUtils::kParseFragmentNoSanitization
-            : nsContentUtils::kParseFragmentPrivilegedDefaultSanitization;
+      safe ? nsContentUtils::kParseFragmentNoSanitization
+           : nsContentUtils::kParseFragmentPrivilegedDefaultSanitization;
 
   const bool sanitizeWhileParsing =
       StaticPrefs::dom_security_sanitizer_while_parsing();
@@ -6955,7 +6957,7 @@ static void SetAndFilterHTML(
       aHTML, fragment, contextLocalName, contextNameSpaceID,
       /* aQuirks */ false, /* aPreventScriptExecution */ true, flags,
       mozilla::Nothing(), sanitizeWhileParsing ? sanitizer.get() : nullptr,
-      aSafe);
+      aSanitizerMode);
   if (aError.Failed()) {
     return;
   }
@@ -6967,7 +6969,7 @@ static void SetAndFilterHTML(
 
   if (!sanitizeWhileParsing) {
     // Step 6. Run sanitize on fragment using sanitizer and safe.
-    sanitizer->Sanitize(fragment, aSafe, aError);
+    sanitizer->Sanitize(fragment, safe, aError);
     if (aError.Failed()) {
       return;
     }
@@ -6988,7 +6990,7 @@ void nsContentUtils::SetHTML(FragmentOrElement* aTarget, Element* aContext,
                              const SetHTMLOptions& aOptions,
                              ErrorResult& aError) {
   SetAndFilterHTML(aTarget, aContext, aHTML, aOptions.mSanitizer,
-                   /* aSafe */ true, aError);
+                   SanitizerMode::Safe, aError);
 }
 
 /* https://html.spec.whatwg.org/#unsafely-set-html */
@@ -7018,7 +7020,7 @@ void nsContentUtils::SetHTMLUnsafe(
   // Fallback to the more optimized code below without a sanitizer.
   if (aOptions.mSanitizer.WasPassed()) {
     return SetAndFilterHTML(aTarget, aContext, *compliantString,
-                            aOptions.mSanitizer.Value(), /* aSafe */ false,
+                            aOptions.mSanitizer.Value(), SanitizerMode::Unsafe,
                             aError);
   }
 
@@ -7129,7 +7131,7 @@ nsresult nsContentUtils::ParseFragmentHTML(
     bool aPreventScriptExecution, int32_t aFlags,
     mozilla::Maybe<RefPtr<mozilla::dom::CustomElementRegistry>>
         aCustomElementRegistry,
-    Sanitizer* aSanitizer, bool aSanitizerSafe) {
+    Sanitizer* aSanitizer, SanitizerMode aSanitizerMode) {
   MOZ_ASSERT(!aSanitizer ||
              StaticPrefs::dom_security_sanitizer_while_parsing());
   if (nsContentUtils::sFragmentParsingActive) {
@@ -7179,7 +7181,7 @@ nsresult nsContentUtils::ParseFragmentHTML(
   nsresult rv = sHTMLFragmentParser->ParseFragment(
       aSourceBuffer, target, aContextLocalName, aContextNamespace, aQuirks,
       aPreventScriptExecution, false, std::move(aCustomElementRegistry),
-      aSanitizer, aSanitizerSafe);
+      aSanitizer, aSanitizerMode);
   NS_ENSURE_SUCCESS(rv, rv);
 
   if (fragment) {
@@ -7202,7 +7204,7 @@ nsresult nsContentUtils::ParseFragmentHTML(
 nsresult nsContentUtils::ParseDocumentHTML(
     const nsAString& aSourceBuffer, Document* aTargetDocument,
     bool aScriptingEnabledForNoscriptParsing, Sanitizer* aSanitizer,
-    bool aSanitizerSafe) {
+    SanitizerMode aSanitizerMode) {
   MOZ_ASSERT(!aSanitizer ||
              StaticPrefs::dom_security_sanitizer_while_parsing());
   if (nsContentUtils::sFragmentParsingActive) {
@@ -7217,7 +7219,7 @@ nsresult nsContentUtils::ParseDocumentHTML(
   }
   nsresult rv = sHTMLFragmentParser->ParseDocument(
       aSourceBuffer, aTargetDocument, aScriptingEnabledForNoscriptParsing,
-      aSanitizer, aSanitizerSafe);
+      aSanitizer, aSanitizerMode);
   return rv;
 }
 
@@ -7641,7 +7643,9 @@ void nsContentUtils::TriggerLinkClick(
     nsAutoString fileName;
     if ((!aContent->IsHTMLElement(nsGkAtoms::a) &&
          !aContent->IsHTMLElement(nsGkAtoms::area) &&
-         !aContent->IsSVGElement(nsGkAtoms::a)) ||
+         !aContent->IsSVGElement(nsGkAtoms::a) &&
+         !(aContent->IsMathMLElement(nsGkAtoms::a) &&
+           StaticPrefs::mathml_a_element_enabled())) ||
         !aContent->AsElement()->GetAttr(nsGkAtoms::download, fileName) ||
         NS_FAILED(aContent->NodePrincipal()->CheckMayLoad(aLinkURI, true))) {
       fileName.SetIsVoid(true);  // No actionable download attribute was found.
@@ -7782,6 +7786,22 @@ void nsContentUtils::RemoveScriptBlocker() {
   sRemovingScriptBlockers = true;
 #endif
   sBlockedScriptRunners->RemoveElementsAt(originalFirstBlocker, blockersCount);
+}
+
+nsAutoMicroTaskForDocument::nsAutoMicroTaskForDocument(
+    const Document* aDocument)
+    : mContext(aDocument && aDocument->GetInnerWindow()
+                   ? CycleCollectedJSContext::Get()
+                   : nullptr) {
+  if (mContext) {
+    mContext->EnterMicroTask();
+  }
+}
+
+nsAutoMicroTaskForDocument::~nsAutoMicroTaskForDocument() {
+  if (mContext) {
+    mContext->LeaveMicroTask();
+  }
 }
 
 /* static */
@@ -10459,8 +10479,6 @@ Result<bool, nsresult> nsContentUtils::SynthesizeMouseEvent(
         aMouseEventData.mInputSource != MouseEvent_Binding::MOZ_SOURCE_TOUCH;
   } else if (aType.EqualsLiteral("MozMouseHittest")) {
     msg = eMouseHitTest;
-  } else if (aType.EqualsLiteral("MozMouseExploreByTouch")) {
-    msg = eMouseExploreByTouch;
   } else {
     return Err(NS_ERROR_FAILURE);
   }
@@ -10845,7 +10863,9 @@ bool nsContentUtils::HasRelNoReferrer(const Element& aElement) {
   // rel=noreferrer is only supported in <a>, <area>, and <form>
   if (!aElement.IsAnyOfHTMLElements(nsGkAtoms::a, nsGkAtoms::area,
                                     nsGkAtoms::form) &&
-      !aElement.IsSVGElement(nsGkAtoms::a)) {
+      !aElement.IsSVGElement(nsGkAtoms::a) &&
+      !(aElement.IsMathMLElement(nsGkAtoms::a) &&
+        StaticPrefs::mathml_a_element_enabled())) {
     return false;
   }
 

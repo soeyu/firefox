@@ -120,6 +120,9 @@ class WebRenderLayerManager;
 namespace widget {
 enum class TransparencyMode : uint8_t;
 }
+namespace wr {
+class DisplayListBuilder;
+}  // namespace wr
 }  // namespace mozilla
 
 // Flags to customize the behavior of nsLayoutUtils::DrawString.
@@ -1016,7 +1019,7 @@ class nsLayoutUtils {
    * Whether author-specified borders / backgrounds disable theming for a given
    * appearance value.
    */
-  static bool AuthorSpecifiedBorderBackgroundDisablesTheming(
+  static bool AuthorOrUserSpecifiedBorderBackgroundDisablesTheming(
       mozilla::StyleAppearance);
 
   /**
@@ -2193,6 +2196,7 @@ class nsLayoutUtils {
   static mozilla::gfx::IntSize ComputeImageContainerDrawingParameters(
       imgIContainer* aImage, nsIFrame* aForFrame,
       const LayoutDeviceRect& aDestRect, const LayoutDeviceRect& aFillRect,
+      mozilla::wr::DisplayListBuilder& aBuilder,
       const StackingContextHelper& aSc, uint32_t aFlags,
       mozilla::SVGImageContext& aSVGContext,
       mozilla::Maybe<mozilla::image::ImageIntRegion>& aRegion,
@@ -2402,7 +2406,7 @@ class nsLayoutUtils {
   // This function can be called on any thread.
   static mozilla::SurfaceFromElementResult SurfaceFromVideoFrame(
       mozilla::dom::VideoFrame* aVideoFrame, uint32_t aSurfaceFlags,
-      RefPtr<DrawTarget>& aTarget);
+      RefPtr<DrawTarget>& aTarget, bool aOptimizeSourceSurface = true);
   static mozilla::SurfaceFromElementResult SurfaceFromVideoFrame(
       mozilla::dom::VideoFrame* aVideoFrame, uint32_t aSurfaceFlags = 0) {
     RefPtr<DrawTarget> target = nullptr;
@@ -2859,8 +2863,7 @@ class nsLayoutUtils {
    * are likely to need special-case handling of the RCD-RSF.
    */
   static nsSize CalculateCompositionSizeForFrame(
-      nsIFrame* aFrame, bool aSubtractScrollbars = true,
-      const nsSize* aOverrideScrollPortSize = nullptr,
+      nsIFrame* aFrame, const nsSize* aOverrideScrollPortSize = nullptr,
       IncludeDynamicToolbar aIncludeDynamicToolbar =
           IncludeDynamicToolbar::Auto);
 

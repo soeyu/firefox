@@ -57,6 +57,7 @@
 #include "mozilla/dom/CanvasPath.h"
 #include "mozilla/dom/CanvasPattern.h"
 #include "mozilla/dom/CanvasRenderingContext2DBinding.h"
+#include "mozilla/dom/CanvasRenderingContextHelper.h"
 #include "mozilla/dom/DOMMatrix.h"
 #include "mozilla/dom/Document.h"
 #include "mozilla/dom/FontFaceSet.h"
@@ -148,6 +149,12 @@ const size_t MAX_STYLE_STACK_SIZE = 1024;
 
 /* Memory reporter stuff */
 static Atomic<int64_t> gCanvasAzureMemoryUsed(0);
+
+static PredefinedColorSpace GetColorSpaceFromImageDataSettings(
+    const ImageDataSettings& aSettings, PredefinedColorSpace aColorSpace) {
+  return aSettings.mColorSpace.WasPassed() ? aSettings.mColorSpace.Value()
+                                           : aColorSpace;
+}
 
 // Adds Save() / Restore() calls to the scope.
 class MOZ_RAII AutoSaveRestore {
@@ -1224,6 +1231,7 @@ CanvasRenderingContext2D::CanvasRenderingContext2D(
     :  // these are the default values from the Canvas spec
       mWidth(0),
       mHeight(0),
+      mColorSpace(PredefinedColorSpace::Srgb),
       mZero(false),
       mOpaqueAttrValue(false),
       mContextAttributesHasAlpha(true),
@@ -1275,9 +1283,10 @@ void CanvasRenderingContext2D::GetContextAttributes(
   aSettings.mAlpha = mContextAttributesHasAlpha;
   aSettings.mWillReadFrequently = mWillReadFrequently;
   aSettings.mForceSoftwareRendering = mForceSoftwareRendering;
+  aSettings.mColorSpace = mColorSpace;
 
-  // We don't support the 'desynchronized' and 'colorSpace' attributes, so
-  // those just keep their default values.
+  // We don't support the 'desynchronized' attribute
+  // so just keep its default value.
 }
 
 void CanvasRenderingContext2D::GetDebugInfo(
@@ -1371,6 +1380,12 @@ void CanvasRenderingContext2D::ResetBitmap(bool aFreeBuffer) {
   mIsEntireFrameInvalid = false;
   mPredictManyRedrawCalls = false;
   mFrameCaptureState = FrameCaptureState::CLEAN;
+}
+
+void CanvasRenderingContext2D::OnWindowDestroy() {
+  // Ensure the buffer provider is released as soon as it is known it cannot be
+  // used, since the owning window has gone away, rather than wait until a GC.
+  ResetBitmap();
 }
 
 void CanvasRenderingContext2D::OnShutdown() {
@@ -2249,28 +2264,26 @@ void CanvasRenderingContext2D::UpdateIsOpaque() {
 }
 
 NS_IMETHODIMP
-CanvasRenderingContext2D::SetContextOptions(JSContext* aCx,
-                                            JS::Handle<JS::Value> aOptions,
-                                            ErrorResult& aRvForDictionaryInit) {
-  if (aOptions.isNullOrUndefined()) {
-    return NS_OK;
-  }
-
+CanvasRenderingContext2D::SetContextOptions(
+    const CanvasRenderingContextOptions& aOptions) {
   // This shouldn't be called before drawing starts, so there should be no
   // drawtarget yet
   MOZ_ASSERT(!mTarget);
 
-  CanvasRenderingContext2DSettings attributes;
-  if (!attributes.Init(aCx, aOptions)) {
-    aRvForDictionaryInit.Throw(NS_ERROR_UNEXPECTED);
+  if (!aOptions.is<CanvasRenderingContext2DSettings>()) {
     return NS_ERROR_UNEXPECTED;
   }
+  const auto& attributes = aOptions.as<CanvasRenderingContext2DSettings>();
 
   mWillReadFrequently = attributes.mWillReadFrequently;
   mForceSoftwareRendering = attributes.mForceSoftwareRendering;
 
   mContextAttributesHasAlpha = attributes.mAlpha;
   UpdateIsOpaque();
+
+  if (StaticPrefs::gfx_canvas_colorspace_enabled()) {
+    mColorSpace = attributes.mColorSpace;
+  }
 
   return NS_OK;
 }
@@ -4796,8 +4809,8 @@ struct MOZ_STACK_CLASS CanvasBidiProcessor final
     : public nsBidiPresUtils::BidiProcessor {
   using Style = CanvasRenderingContext2D::Style;
 
-  explicit CanvasBidiProcessor(mozilla::gfx::PaletteCache& aPaletteCache)
-      : mPaletteCache(aPaletteCache) {
+  explicit CanvasBidiProcessor(gfx::FontPaletteValueSet* aPaletteValueSet)
+      : mPaletteValueSet(aPaletteValueSet) {
     if (StaticPrefs::gfx_missing_fonts_notify()) {
       mMissingFonts = MakeUnique<gfxMissingFontRecorder>();
     }
@@ -5047,7 +5060,7 @@ struct MOZ_STACK_CLASS CanvasBidiProcessor final
     }
 
     gfxContext thebes(target, /* aPreserveTransform */ true);
-    gfxTextRun::DrawParams params(&thebes, mPaletteCache);
+    gfxTextRun::DrawParams params(&thebes, mPaletteValueSet);
 
     params.allowGDI = false;
 
@@ -5112,14 +5125,14 @@ struct MOZ_STACK_CLASS CanvasBidiProcessor final
   // Pointer to the draw target we should fill our text to
   CanvasRenderingContext2D* mCtx = nullptr;
 
+  // palette-values set from the presContext, if any.
+  gfx::FontPaletteValueSet* mPaletteValueSet = nullptr;
+
   // position of the left side of the string, alphabetic baseline
   gfx::Point mPt;
 
   // current font
   gfxFontGroup* mFontgrp = nullptr;
-
-  // palette cache for COLR font rendering
-  mozilla::gfx::PaletteCache& mPaletteCache;
 
   // spacing adjustments to be applied
   gfx::Float mLetterSpacing = 0.0f;
@@ -5243,7 +5256,9 @@ UniquePtr<TextMetrics> CanvasRenderingContext2D::DrawOrMeasureText(
     return nullptr;
   }
 
-  CanvasBidiProcessor processor(mPaletteCache);
+  auto* paletteValueSet =
+      presContext ? presContext->GetFontPaletteValueSet() : nullptr;
+  CanvasBidiProcessor processor(paletteValueSet);
 
   // If we don't have a ComputedStyle, we can't set up vertical-text flags
   // (for now, at least; perhaps we need new Canvas API to control this).
@@ -5946,6 +5961,14 @@ bool ValidSurfaceDescriptorForRemoteCanvas2d(
       break;
     }
 #endif
+#ifdef MOZ_WIDGET_GTK
+    case layers::RemoteDecoderVideoType::DMABuf: {
+      if (!StaticPrefs::gfx_canvas_remote_use_draw_image_fast_path_dmabuf()) {
+        return false;
+      }
+      break;
+    }
+#endif
     default:
       return false;
   }
@@ -5957,7 +5980,8 @@ bool ValidSurfaceDescriptorForRemoteCanvas2d(
 
 static Maybe<layers::SurfaceDescriptor>
 MaybeGetSurfaceDescriptorForRemoteCanvas(
-    const SurfaceFromElementResult& aResult) {
+    const SurfaceFromElementResult& aResult,
+    Maybe<layers::RemoteDecoderVideoType> aOnlyVideoType) {
   if (!StaticPrefs::gfx_canvas_remote_use_draw_image_fast_path()) {
     return Nothing();
   }
@@ -5966,13 +5990,24 @@ MaybeGetSurfaceDescriptorForRemoteCanvas(
     return Nothing();
   }
 
-  if (const auto sd = aResult.mLayersImage->GetDesc()) {
-    Maybe<layers::SurfaceDescriptor> result;
-    if (ValidSurfaceDescriptorForRemoteCanvas2d(*sd, &result)) {
-      return result;
-    }
+  const Maybe<layers::SurfaceDescriptor> sd = aResult.mLayersImage->GetDesc();
+  if (!sd) {
+    return Nothing();
   }
-  return Nothing();
+
+  Maybe<layers::SurfaceDescriptor> result;
+  if (!ValidSurfaceDescriptorForRemoteCanvas2d(*sd, &result)) {
+    return Nothing();
+  }
+
+  // The validation above guarantees these are the active union members.
+  if (aOnlyVideoType && sd->get_SurfaceDescriptorGPUVideo()
+                                .get_SurfaceDescriptorRemoteDecoder()
+                                .videoType() != *aOnlyVideoType) {
+    return Nothing();
+  }
+
+  return result;
 }
 
 // drawImage(in HTMLImageElement image, in float dx, in float dy);
@@ -6095,21 +6130,16 @@ void CanvasRenderingContext2D::DrawImage(const CanvasImageSource& aImage,
                         nsLayoutUtils::SFE_NO_RASTERIZING_VECTORS |
                         nsLayoutUtils::SFE_ALLOW_UNCROPPED_UNSCALED;
 
-    if (offscreenCanvas) {
-      res = nsLayoutUtils::SurfaceFromOffscreenCanvas(offscreenCanvas, sfeFlags,
-                                                      mTarget);
-    } else if (videoFrame) {
-      res = nsLayoutUtils::SurfaceFromVideoFrame(videoFrame, sfeFlags, mTarget);
-    } else {
-      res = CanvasRenderingContext2D::CachedSurfaceFromElement(element);
-      if (!res.mSourceSurface) {
-        HTMLVideoElement* video = HTMLVideoElement::FromNodeOrNull(element);
-        if (video && mBufferProvider->IsAccelerated() &&
-            mTarget->IsRecording() &&
-            !(NeedToApplyFilter() || NeedToDrawShadow())) {
-          res = nsLayoutUtils::SurfaceFromElement(
-              video, sfeFlags, mTarget, /* aOptimizeSourceSurface */ false);
-          surfaceDescriptor = MaybeGetSurfaceDescriptorForRemoteCanvas(res);
+    bool fastPath = mBufferProvider->IsAccelerated() &&
+                    mTarget->IsRecording() &&
+                    !(NeedToApplyFilter() || NeedToDrawShadow());
+
+    // Prefer handing the remote canvas a surface descriptor, and fall back to
+    // an optimized source surface if there is none we can use.
+    auto getDescriptorOrSurface =
+        [&](Maybe<layers::RemoteDecoderVideoType> aOnlyVideoType) {
+          surfaceDescriptor =
+              MaybeGetSurfaceDescriptorForRemoteCanvas(res, aOnlyVideoType);
           if (surfaceDescriptor.isNothing() && res.mLayersImage) {
             if ((res.mSourceSurface = res.mLayersImage->GetAsSourceSurface())) {
               RefPtr<SourceSurface> opt =
@@ -6119,6 +6149,36 @@ void CanvasRenderingContext2D::DrawImage(const CanvasImageSource& aImage,
               }
             }
           }
+        };
+
+    // The VideoFrame fast path has only been evaluated for DMABuf on Linux.
+    // Leaving it unrestricted would also route software decoded frames through
+    // the descriptor path on every platform.
+    Maybe<layers::RemoteDecoderVideoType> videoFrameType;
+#ifdef MOZ_WIDGET_GTK
+    videoFrameType = Some(layers::RemoteDecoderVideoType::DMABuf);
+#endif
+
+    if (offscreenCanvas) {
+      res = nsLayoutUtils::SurfaceFromOffscreenCanvas(offscreenCanvas, sfeFlags,
+                                                      mTarget);
+    } else if (videoFrame) {
+      if (fastPath && videoFrameType) {
+        res = nsLayoutUtils::SurfaceFromVideoFrame(
+            videoFrame, sfeFlags, mTarget, /* aOptimizeSourceSurface */ false);
+        getDescriptorOrSurface(videoFrameType);
+      } else {
+        res =
+            nsLayoutUtils::SurfaceFromVideoFrame(videoFrame, sfeFlags, mTarget);
+      }
+    } else {
+      res = CanvasRenderingContext2D::CachedSurfaceFromElement(element);
+      if (!res.mSourceSurface) {
+        HTMLVideoElement* video = HTMLVideoElement::FromNodeOrNull(element);
+        if (video && fastPath) {
+          res = nsLayoutUtils::SurfaceFromElement(
+              video, sfeFlags, mTarget, /* aOptimizeSourceSurface */ false);
+          getDescriptorOrSurface(Nothing());
         } else {
           res = nsLayoutUtils::SurfaceFromElement(element, sfeFlags, mTarget);
         }
@@ -6671,7 +6731,8 @@ void CanvasRenderingContext2D::DrawWindow(nsGlobalWindowInner& aWindow,
 
 already_AddRefed<ImageData> CanvasRenderingContext2D::GetImageData(
     JSContext* aCx, int32_t aSx, int32_t aSy, int32_t aSw, int32_t aSh,
-    nsIPrincipal& aSubjectPrincipal, ErrorResult& aError) {
+    const ImageDataSettings& aSettings, nsIPrincipal& aSubjectPrincipal,
+    ErrorResult& aError) {
   if (!mCanvasElement && !mDocShell && !mOffscreenCanvas) {
     NS_ERROR("No canvas element and no docshell in GetImageData!!!");
     aError.Throw(NS_ERROR_DOM_SECURITY_ERR);
@@ -6693,6 +6754,11 @@ already_AddRefed<ImageData> CanvasRenderingContext2D::GetImageData(
     aError.Throw(NS_ERROR_DOM_INDEX_SIZE_ERR);
     return nullptr;
   }
+
+  // Pass the colorspace info into the image data
+  // if none is available, choose the one defined for this context
+  PredefinedColorSpace colorSpace =
+      GetColorSpaceFromImageDataSettings(aSettings, mColorSpace);
 
   // Handle negative width and height by flipping the rectangle over in the
   // relevant direction.
@@ -6726,7 +6792,8 @@ already_AddRefed<ImageData> CanvasRenderingContext2D::GetImageData(
     return nullptr;
   }
   MOZ_ASSERT(array);
-  return do_AddRef(new ImageData(GetParentObject(), w, h, array));
+
+  return do_AddRef(new ImageData(GetParentObject(), w, h, colorSpace, array));
 }
 
 static IntRect ClipImageDataTransfer(IntRect& aSrc, const IntPoint& aDestOffset,
@@ -7052,7 +7119,7 @@ void CanvasRenderingContext2D::PutImageData_explicit(
 
 static already_AddRefed<ImageData> CreateImageData(
     JSContext* aCx, CanvasRenderingContext2D* aContext, uint32_t aW,
-    uint32_t aH, ErrorResult& aError) {
+    uint32_t aH, const ImageDataSettings& aSettings, ErrorResult& aError) {
   if (aW == 0) aW = 1;
   if (aH == 0) aH = 1;
 
@@ -7071,11 +7138,16 @@ static already_AddRefed<ImageData> CreateImageData(
     return nullptr;
   }
 
-  return do_AddRef(new ImageData(aContext->GetParentObject(), aW, aH, darray));
+  PredefinedColorSpace colorSpace =
+      GetColorSpaceFromImageDataSettings(aSettings, aContext->GetColorSpace());
+
+  return do_AddRef(
+      new ImageData(aContext->GetParentObject(), aW, aH, colorSpace, darray));
 }
 
 already_AddRefed<ImageData> CanvasRenderingContext2D::CreateImageData(
-    JSContext* aCx, int32_t aSw, int32_t aSh, ErrorResult& aError) {
+    JSContext* aCx, int32_t aSw, int32_t aSh,
+    const ImageDataSettings& aSettings, ErrorResult& aError) {
   if (!aSw || !aSh) {
     aError.ThrowIndexSizeError("Invalid width or height");
     return nullptr;
@@ -7083,13 +7155,19 @@ already_AddRefed<ImageData> CanvasRenderingContext2D::CreateImageData(
 
   uint32_t w = Abs(aSw);
   uint32_t h = Abs(aSh);
-  return dom::CreateImageData(aCx, this, w, h, aError);
+
+  return dom::CreateImageData(aCx, this, w, h, aSettings, aError);
 }
 
 already_AddRefed<ImageData> CanvasRenderingContext2D::CreateImageData(
     JSContext* aCx, ImageData& aImagedata, ErrorResult& aError) {
+  // pass over the colorSpace if enabled
+  ImageDataSettings settings;
+  if (StaticPrefs::gfx_canvas_colorspace_enabled()) {
+    settings.mColorSpace.Construct(aImagedata.ColorSpace());
+  }
   return dom::CreateImageData(aCx, this, aImagedata.Width(),
-                              aImagedata.Height(), aError);
+                              aImagedata.Height(), settings, aError);
 }
 
 void CanvasRenderingContext2D::OnMemoryPressure() {

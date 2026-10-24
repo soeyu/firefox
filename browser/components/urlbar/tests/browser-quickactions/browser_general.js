@@ -69,14 +69,20 @@ async function exitActionsMode() {
   });
 }
 
+const TEST_TOP_SITE = "https://example.com";
+
 add_setup(async function setup() {
   await SpecialPowers.pushPrefEnv({
     set: [
       ["test.wait300msAfterTabSwitch", true],
       ["browser.urlbar.quickactions.enabled", true],
       ["browser.urlbar.scotchBonnet.enableOverride", true],
+      ["browser.urlbar.suggest.topsites", true],
+      ["browser.newtabpage.activity-stream.default.sites", TEST_TOP_SITE],
     ],
   });
+
+  await updateTopSites(sites => sites?.length == 1);
 
   ActionsProviderQuickActions.addAction("testaction", {
     commands: ["testaction"],
@@ -257,10 +263,28 @@ add_task(async function test_refresh() {
 });
 
 add_task(async function test_clear() {
+  const { Sanitizer } = ChromeUtils.importESModule(
+    "resource:///modules/Sanitizer.sys.mjs"
+  );
+  let originalShowUI = Sanitizer.showUI;
+  let showUIOptions = [];
+  Sanitizer.showUI = function (window, mode, options) {
+    showUIOptions.push(options);
+    return originalShowUI.call(this, window, mode, options);
+  };
+  registerCleanupFunction(() => {
+    Sanitizer.showUI = originalShowUI;
+  });
   await doAlertDialogTest({
     input: "clear",
     dialogContentURI: "chrome://browser/content/sanitize_v2.xhtml",
   });
+  Assert.deepEqual(
+    showUIOptions,
+    [{ entryPoint: "quick_action" }],
+    "The dialog is told it was opened from the quick action."
+  );
+  Sanitizer.showUI = originalShowUI;
 });
 
 async function doUpdateActionTest(isActiveExpected) {
